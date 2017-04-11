@@ -461,7 +461,15 @@ BWAPI::TilePosition BuildingManager::getBuildingLocation(const Building & b)
 
 	if (b.type == BWAPI::UnitTypes::Zerg_Creep_Colony)
 	{
-		BWAPI::TilePosition posi = BuildingPlacer::Instance().getSunkenPosition();
+		BWAPI::TilePosition posi = BWAPI::TilePositions::None;
+		if (b.creepForSpore)
+		{
+			posi = BuildingPlacer::Instance().getSporePosition();
+		}
+		else
+		{
+			posi = BuildingPlacer::Instance().getSunkenPosition();
+		}
 		return BuildingPlacer::Instance().getBuildLocationNear(posi, b, 0, false);
 	}
 

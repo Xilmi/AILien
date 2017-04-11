@@ -51,6 +51,6 @@ public:
 
     BWAPI::TilePosition		getRefineryPosition();
 	BWAPI::TilePosition		getSunkenPosition();
-
+	BWAPI::TilePosition		getSporePosition();
 };
 }

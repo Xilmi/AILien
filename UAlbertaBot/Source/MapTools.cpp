@@ -1,6 +1,7 @@
 #include "MapTools.h"
 #include "InformationManager.h"
 #include "BuildingManager.h"
+#include "UnitUtil.h"
 
 using namespace UAlbertaBot;
 
@@ -288,7 +289,10 @@ BWAPI::TilePosition MapTools::getNextExpansion(BWAPI::Player player)
 			{
 				distanceFromHome *= 2;
 			}
-			distanceFromHome /= thisTile.getDistance(getEnemyCenter());
+			if (WorkerManager::Instance().workerData.getNumDepots() >= 2)
+			{
+				distanceFromHome /= thisTile.getDistance(getEnemyCenter());
+			}
 
             // if it is not connected, continue
             if (!BWTA::isConnected(homeTile,tile) || distanceFromHome < 0)
@@ -327,6 +331,19 @@ std::vector<BWAPI::Position> MapTools::getScoutLocations()
 		if (ui.second.unit->isBurrowed() || ui.second.unit->isCloaked())
 		{
 			scoutPositions.push_back(ui.second.lastPosition);
+		}
+	}
+	int OverlordsRemainingForUnits = std::ceil(UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, true) / 10.0);
+	for each (auto ui in InformationManager::Instance().getUnitInfo(BWAPI::Broodwar->self()))
+	{
+		if (OverlordsRemainingForUnits <= 0)
+		{
+			break;
+		}
+		if (ui.second.unit->canAttack() && !ui.second.type.isWorker())
+		{
+			scoutPositions.push_back(ui.second.lastPosition);
+			--OverlordsRemainingForUnits;
 		}
 	}
 	if (BWAPI::Broodwar->enemy()->getStartLocation().isValid())

@@ -67,6 +67,16 @@ const bool StrategyManager::shouldExpandNow() const
 			if (BuildingPlacer::Instance().tileOverlapsBaseLocation(unit->getTilePosition(), BWAPI::UnitTypes::Zerg_Queens_Nest)) //This line makes sure only hatches at gather-locations are counted I must lie to it about what building it is
 			{
 				miningBases++;
+				BWAPI::Unit closestEnemy = unit->getClosestUnit(BWAPI::Filter::IsEnemy&&BWAPI::Filter::CanAttack);
+				if (closestEnemy && closestEnemy->getDistance(unit->getPosition()) < 400)
+				{
+					if (closestEnemy->getType().isBuilding()) //if it is a cannon we do not consider this base as expanding-preventing, quite the contrary
+					{
+						continue;
+					}
+					shouldExpand = false;
+					break;
+				}
 				if (!WorkerManager::Instance().workerData.depotIsFull(unit))
 				{
 					shouldExpand = false;
@@ -75,12 +85,6 @@ const bool StrategyManager::shouldExpandNow() const
 				else
 				{
 					saturated++;
-				}
-				BWAPI::Unit closestEnemy = unit->getClosestUnit(BWAPI::Filter::IsEnemy&&BWAPI::Filter::CanAttack);
-				if (closestEnemy && closestEnemy->getDistance(unit->getPosition()) < 400)
-				{
-					shouldExpand = false;
-					break;
 				}
 			}
 		}

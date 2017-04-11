@@ -143,6 +143,7 @@ void Micro::SmartAttackMove(BWAPI::Unit attacker, const BWAPI::Position & target
 		{
 			SmartMove(attacker, targetPosition);
 		}
+		return;
 	}
 
     if (!attacker || !targetPosition.isValid())
@@ -159,14 +160,32 @@ void Micro::SmartAttackMove(BWAPI::Unit attacker, const BWAPI::Position & target
     // get the unit's current command
     BWAPI::UnitCommand currentCommand(attacker->getLastCommand());
 
-    // if we've already told this unit to attack this target, ignore this command
-    if (currentCommand.getType() == BWAPI::UnitCommandTypes::Attack_Move &&	currentCommand.getTargetPosition() == targetPosition)
+	BWAPI::Unit enemy = attacker->getClosestUnit(BWAPI::Filter::IsEnemy&&!BWAPI::Filter::IsFlying);
+	if (enemy)
+	{
+		if (enemy->getType() == BWAPI::UnitTypes::Zerg_Larva
+			|| enemy->getType() == BWAPI::UnitTypes::Zerg_Egg
+			|| enemy->getType() == BWAPI::UnitTypes::Zerg_Lurker_Egg)
+		{
+			SmartMove(attacker, targetPosition);
+			return;
+		}
+		if (enemy->getType().isBuilding())
+		{
+			if (attacker->getType() == BWAPI::UnitTypes::Zerg_Hydralisk)
+			{
+				SmartKiteTarget(attacker, enemy, targetPosition);
+				return;
+			}
+		}
+	}
+	// if we've already told this unit to attack this target, ignore this command
+	if (currentCommand.getType() == BWAPI::UnitCommandTypes::Attack_Move &&	currentCommand.getTargetPosition() == targetPosition)
 	{
 		return;
 	}
-
     // if nothing prevents it, attack the target
-    attacker->attack(targetPosition);
+	attacker->attack(targetPosition);
     TotalCommands++;
 
     if (Config::Debug::DrawUnitTargetInfo) 
@@ -387,9 +406,36 @@ void Micro::SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::P
 		range = 6*32;
 	}
 
-	// determine whether the target can be kited
-    bool kiteLonger = Config::Micro::KiteLongerRangedUnits.find(rangedUnit->getType()) != Config::Micro::KiteLongerRangedUnits.end();
-	if (!kiteLonger && range <= target->getType().groundWeapon().maxRange())
+	//determine whether the target can be kited
+	bool kiteLonger = Config::Micro::KiteLongerRangedUnits.find(rangedUnit->getType()) != Config::Micro::KiteLongerRangedUnits.end();
+	int kiteRange = target->getType().groundWeapon().maxRange();
+	if (target->getType().groundWeapon() == BWAPI::WeaponTypes::None)
+	{
+		kiteRange = range + 1;
+	}
+	if (rangedUnit->getType().isFlyer())
+	{
+		kiteRange = target->getType().airWeapon().maxRange();
+		if (target->getType().airWeapon() == BWAPI::WeaponTypes::None)
+		{
+			kiteRange = range + 1;
+		}
+		if (target->getType() == BWAPI::UnitTypes::Terran_Marine
+			|| target->getType() == BWAPI::UnitTypes::Zerg_Hydralisk
+			|| target->getType() == BWAPI::UnitTypes::Protoss_Dragoon)
+		{
+			kiteRange += 32;
+		}
+		if (target->getType() == BWAPI::UnitTypes::Terran_Goliath)
+		{
+			kiteRange += 3 * 32;
+		}
+	}
+	if (target->getType() == BWAPI::UnitTypes::Terran_Bunker)
+	{
+		kiteRange = BWAPI::UnitTypes::Terran_Marine.groundWeapon().maxRange() + 2 * 32;
+	}
+	if (!kiteLonger && range <= kiteRange && kiteGoal == BWAPI::Positions::None)
 	{
 		// if we can't kite it, there's no point
 		Micro::SmartAttackUnit(rangedUnit, target);
@@ -402,7 +448,7 @@ void Micro::SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::P
 
     
     // if the unit can't attack back don't kite
-    if ((rangedUnit->isFlying() && !UnitUtil::CanAttackAir(target)) || (!rangedUnit->isFlying() && !UnitUtil::CanAttackGround(target)))
+	if (((rangedUnit->isFlying() && !UnitUtil::CanAttackAir(target)) || (!rangedUnit->isFlying() && !UnitUtil::CanAttackGround(target))) && kiteGoal == BWAPI::Positions::None)
     {
         kite = false;
     }
@@ -413,7 +459,7 @@ void Micro::SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::P
 		kite = false;
 	}
 
-	if (target->getType().isBuilding())
+	if (target->getType().isBuilding() && kiteGoal == BWAPI::Positions::None)
 	{
 		kite = false;
 	}
@@ -421,6 +467,10 @@ void Micro::SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::P
 	if (kite)
 	{
 		BWAPI::Position fleePosition(rangedUnit->getPosition() - target->getPosition() + rangedUnit->getPosition());
+		if (kiteGoal != BWAPI::Positions::None && kiteLonger && range <= kiteRange)
+		{
+			fleePosition = kiteGoal;
+		}
 		//BWAPI::Broodwar->drawLineMap(rangedUnit->getPosition(), fleePosition, BWAPI::Colors::Cyan);
 		rangedUnit->move(fleePosition);
 	}
@@ -432,7 +482,7 @@ void Micro::SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::P
 }
 
 
-void Micro::MutaDanceTarget(BWAPI::Unit muta, BWAPI::Unit target)
+void Micro::MutaDanceTarget(BWAPI::Unit muta, BWAPI::Unit target, BWAPI::Position fleeto)
 {
     UAB_ASSERT(muta, "MutaDanceTarget: Muta not valid");
     UAB_ASSERT(target, "MutaDanceTarget: Target not valid");
@@ -466,6 +516,11 @@ void Micro::MutaDanceTarget(BWAPI::Unit muta, BWAPI::Unit target)
 
 	BWAPI::Position fleeVector = GetKiteVector(target, muta);
 	BWAPI::Position moveToPosition(muta->getPosition() + fleeVector);
+
+	if (fleeto != BWAPI::Positions::None)
+	{
+		moveToPosition = fleeto;
+	}
 
 	// If we can attack by the time we reach our firing range
 	if (currentCooldown <= framesToAttack && muta->getHitPoints() > muta->getType().maxHitPoints() / 3)
@@ -549,14 +604,22 @@ BWAPI::Unit Micro::getClosestTarget(BWAPI::Unit rangedUnit, const BWAPI::Unitset
 
 void Micro::SmartOviScout(BWAPI::Unit unit, BWAPI::Position scoutLocation, double avoidDistance, bool avoidEverything)
 {
-	BWAPI::Position closestPositionToAvoid = BWAPI::Position(0,0);
+	BWAPI::Position closestPositionToAvoid = BWAPI::Positions::None;
 	int distance = 10000;
+	bool cloakedWithinDistance = false;
 	for (auto enemyUnit : InformationManager::Instance().getUnitData(BWAPI::Broodwar->enemy()).getUnits())
 	{
 		if (enemyUnit.second.type.airWeapon() != BWAPI::WeaponTypes::None
 			|| enemyUnit.second.type == BWAPI::UnitTypes::Terran_Bunker
 			|| (avoidEverything && !enemyUnit.second.unit->isBurrowed() && !enemyUnit.second.unit->isCloaked()))
 		{
+			if (enemyUnit.second.lastPosition.getDistance(unit->getPosition()) < avoidDistance)
+			{
+				if (enemyUnit.second.type.isCloakable() || enemyUnit.second.type.hasPermanentCloak() || enemyUnit.second.type.isBurrowable())
+				{
+					cloakedWithinDistance = true;
+				}
+			}
 			if (enemyUnit.second.lastPosition.getDistance(unit->getPosition()) < distance)
 			{
 				distance = enemyUnit.second.lastPosition.getDistance(unit->getPosition());
@@ -564,7 +627,11 @@ void Micro::SmartOviScout(BWAPI::Unit unit, BWAPI::Position scoutLocation, doubl
 			}
 		}
 	}
-	if (closestPositionToAvoid != BWAPI::Position(0, 0) && distance < avoidDistance)
+	if (cloakedWithinDistance)
+	{
+		avoidDistance = 50;
+	}
+	if (closestPositionToAvoid != BWAPI::Positions::None && distance < avoidDistance)
 	{
 		BWAPI::Position fleePosition(unit->getPosition() - closestPositionToAvoid + unit->getPosition());
 		SmartMove(unit, fleePosition);
@@ -580,10 +647,6 @@ void Micro::SmartAvoid(BWAPI::Unit unit, BWAPI::Position avoidPosition, BWAPI::P
 	if (!unit->isUnderAttack() && unit->isBurrowed())
 	{
 		return;
-	}
-	if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Sunken_Colony, false) == 0)
-	{
-		dontSpread = false;
 	}
 	if (dontSpread && avoidPosition.getDistance(retreatDirection) < unit->getPosition().getDistance(retreatDirection))
 	{

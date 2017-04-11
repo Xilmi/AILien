@@ -68,6 +68,11 @@ void WorkerManager::updateWorkerStatus(bool updateBuilders)
 		// if its job is gas
 		if (workerData.getWorkerJob(worker) == WorkerData::Gas)
 		{
+			if (worker->isCarryingMinerals()) //I might have had to fight as gasworker and was sent to mineral-block
+			{
+				setMineralWorker(worker);
+			}
+			
 			BWAPI::Unit refinery = workerData.getWorkerResource(worker);
 
 			// if the refinery doesn't exist anymore
@@ -194,6 +199,10 @@ void WorkerManager::handleCombatWorkers()
 			continue;
 		}
 		if (workerData.getWorkerJob(worker) == WorkerData::Build && !Config::Strategy::ScoutHarassEnemy)
+		{
+			continue;
+		}
+		if (workerData.getWorkerJob(worker) == WorkerData::Move && !Config::Strategy::ScoutHarassEnemy)
 		{
 			continue;
 		}
@@ -426,8 +435,6 @@ BWAPI::Unit WorkerManager::getClosestDepot(BWAPI::Unit worker)
 
 BWAPI::Unit WorkerManager::getLeastSaturatedDepot(BWAPI::Unit worker, bool considerEnemies)
 {
-	UAB_ASSERT(worker != nullptr, "Worker was null");
-
 	BWAPI::Unit closestDepot = nullptr;
 	double lowestSaturation = DBL_MAX;
 
@@ -448,8 +455,8 @@ BWAPI::Unit WorkerManager::getLeastSaturatedDepot(BWAPI::Unit worker, bool consi
 				if (considerEnemies)
 				{
 					saturation *= (workerData.getEnemyStrenghtNearDepot(unit) + 1);
+					saturation += (workerData.getEnemyStrenghtNearDepot(unit));
 				}
-				double distance = worker->getPosition().getDistance(unit->getPosition());
 				if (!closestDepot || saturation < lowestSaturation)
 				{
 					closestDepot = unit;

@@ -51,7 +51,6 @@ class StrategyManager
     const BuildOrder                _emptyBuildOrder;
 
 	        void	                writeResults();
-	const	int					    getScore(BWAPI::Player player) const;
 	const   float                   getUnitScore(BWAPI::UnitType unit) const;
 	const	double				    getUCBValue(const size_t & strategy) const;
     const	MetaPairVector		    getProtossBuildOrderGoal() const;
@@ -61,6 +60,7 @@ class StrategyManager
 public:
     
 	static	StrategyManager &	    Instance();
+	const	int					    getScore(BWAPI::Player player) const;
 
 			void				    onEnd(const bool isWinner);
             void                    addStrategy(const std::string & name, Strategy & strategy);

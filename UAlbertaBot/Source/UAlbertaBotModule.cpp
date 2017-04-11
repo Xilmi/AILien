@@ -21,12 +21,6 @@ using namespace UAlbertaBot;
 // This gets called when the bot starts!
 void UAlbertaBotModule::onStart()
 {
-    // Initialize SparCraft, the combat simulation package
-    SparCraft::init();
-
-    // Initialize BOSS, the Build Order Search System
-    BOSS::init();
-
     // Parse the bot's configuration file if it has one, change this file path to where your config file is
     // Any relative path name will be relative to Starcraft installation folder
     ParseUtils::ParseConfigFile(Config::ConfigFile::ConfigFileLocation);
@@ -67,9 +61,9 @@ void UAlbertaBotModule::onStart()
 
 void UAlbertaBotModule::onEnd(bool isWinner) 
 {
-	if (Config::Modules::UsingGameCommander)
+	if (Config::Modules::UsingGameCommander) //we only learn when we lose, otherwise we want to stick with our knowledge from before the game
 	{
-		StrategyManager::Instance().onEnd(isWinner);
+		_gameCommander.onEnd(isWinner);
 	}	
 }
 

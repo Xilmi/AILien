@@ -383,7 +383,7 @@ BWAPI::TilePosition BuildingPlacer::getSunkenPosition()
 		BWAPI::TilePosition currentSunkenPosition = BWAPI::TilePositions::None;
 		for (auto & unit : BWAPI::Broodwar->self()->getUnits())
 		{
-			if (unit->getType().isResourceDepot() && unit->getPlayer() == BWAPI::Broodwar->self() && unit->getDistance(baseLocation->getPosition()) < 200)
+			if (unit->getType().isResourceDepot() && unit->isCompleted() && unit->getPlayer() == BWAPI::Broodwar->self() && unit->getDistance(baseLocation->getPosition()) < 200)
 			{
 				hasHatch = true;
 			}
@@ -402,42 +402,12 @@ BWAPI::TilePosition BuildingPlacer::getSunkenPosition()
 			}
 			if (sunkenScore > bestSunkenScore)
 			{
-				BWAPI::TilePosition center = BWAPI::TilePosition(BWAPI::Broodwar->mapWidth() / 2, BWAPI::Broodwar->mapHeight() / 2);
-				bestSunkenPosition = baseLocation->getTilePosition();
-				BWTA::Chokepoint* closestChokeTowardsCenter = nullptr;
-				double lowestChokeDistance = 10000;
-				for each(auto choke in BWTA::getChokepoints())
-				{
-					if (choke->getCenter().getDistance(BWAPI::Position(center)) < BWAPI::Position(bestSunkenPosition).getDistance(BWAPI::Position(center)))
-					{
-						double currentDistance = BWAPI::Position(bestSunkenPosition).getDistance(choke->getCenter());
-						if (currentDistance < lowestChokeDistance)
-						{
-							lowestChokeDistance = currentDistance;
-							closestChokeTowardsCenter = choke;
-						}
-					}
-				}
-				if (closestChokeTowardsCenter)
-				{
-					center = BWAPI::TilePosition(closestChokeTowardsCenter->getCenter());
-				}
-				if (bestSunkenPosition.x < center.x)
-				{
-					bestSunkenPosition.x = bestSunkenPosition.x + BWAPI::UnitTypes::Zerg_Hatchery.tileWidth();
-				}
-				if (bestSunkenPosition.x > center.x)
-				{
-					bestSunkenPosition.x = bestSunkenPosition.x - BWAPI::UnitTypes::Zerg_Hatchery.tileWidth();
-				}
-				if (bestSunkenPosition.y < center.y)
-				{
-					bestSunkenPosition.y = bestSunkenPosition.y + BWAPI::UnitTypes::Zerg_Hatchery.tileHeight();
-				}
-				if (bestSunkenPosition.y > center.y)
-				{
-					bestSunkenPosition.y = bestSunkenPosition.y - BWAPI::UnitTypes::Zerg_Hatchery.tileHeight();
-				}
+				BWAPI::Position center = BWAPI::Position(BWAPI::Broodwar->mapWidth() * 32 / 2, BWAPI::Broodwar->mapHeight() * 32 / 2);
+				BWAPI::Position sunkenPosi = baseLocation->getPosition();
+				double distance = center.getDistance(baseLocation->getPosition());
+				distance = distance / 100;
+				sunkenPosi = (baseLocation->getPosition() * distance + center) / (distance + 1);
+				bestSunkenPosition = BWAPI::TilePosition(sunkenPosi);
 				bestSunkenScore = sunkenScore;
 			}
 		}
@@ -445,6 +415,43 @@ BWAPI::TilePosition BuildingPlacer::getSunkenPosition()
 	//Adding Map-Center to position so the sunkens face the way where it's most likely the enemy comes from
 	return bestSunkenPosition;
 }
+
+BWAPI::TilePosition BuildingPlacer::getSporePosition()
+{
+	BWAPI::TilePosition bestSporePosition = BWAPI::TilePositions::None;
+	BWAPI::Position homePosition = BWAPI::Position(BWAPI::Broodwar->self()->getStartLocation());
+	int bestSporeScore = 0;
+	for each(auto baseLocation in BWTA::getBaseLocations())
+	{
+		bool hasHatch = false;
+		int sporesAround = 0;
+		int sporeScore = 0;
+		BWAPI::TilePosition currentSporePosition = BWAPI::TilePositions::None;
+		for (auto & unit : BWAPI::Broodwar->self()->getUnits())
+		{
+			if (unit->getType().isResourceDepot() && unit->isCompleted() && unit->getPlayer() == BWAPI::Broodwar->self() && unit->getDistance(baseLocation->getPosition()) < 200)
+			{
+				hasHatch = true;
+			}
+			if ((unit->getType() == BWAPI::UnitTypes::Zerg_Spore_Colony || unit->getType() == BWAPI::UnitTypes::Zerg_Creep_Colony) && unit->getPlayer() == BWAPI::Broodwar->self() && unit->getDistance(baseLocation->getPosition()) < 300)
+			{
+				sporesAround++;
+				currentSporePosition = BWAPI::TilePosition(unit->getPosition());
+			}
+		}
+		if (hasHatch)
+		{
+			sporeScore = 1 - sporesAround;
+			if (sporeScore > bestSporeScore)
+			{
+				bestSporePosition = baseLocation->getTilePosition();
+			}
+		}
+	}
+	//Adding Map-Center to position so the sunkens face the way where it's most likely the enemy comes from
+	return bestSporePosition;
+}
+
 
 BWAPI::TilePosition BuildingPlacer::getRefineryPosition()
 {

@@ -15,8 +15,8 @@ namespace Micro
     void SmartRightClick(BWAPI::Unit unit, BWAPI::Unit target);
     void SmartLaySpiderMine(BWAPI::Unit unit, BWAPI::Position pos);
     void SmartRepair(BWAPI::Unit unit, BWAPI::Unit target);
-	void SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::Position kiteGoal = BWAPI::Position(0, 0));
-    void MutaDanceTarget(BWAPI::Unit muta, BWAPI::Unit target);
+	void SmartKiteTarget(BWAPI::Unit rangedUnit, BWAPI::Unit target, BWAPI::Position kiteGoal = BWAPI::Positions::None);
+    void MutaDanceTarget(BWAPI::Unit muta, BWAPI::Unit target, BWAPI::Position fleeto = BWAPI::Positions::None);
 	void SmartRegroup(BWAPI::Unit unit, BWAPI::Position regroupPosition, BWAPI::Position concaveFacing, std::map<BWAPI::TilePosition, int> &concaveMap);
 	void SmartOviScout(BWAPI::Unit unit, BWAPI::Position scoutLocation, double avoidDistance = 0, bool avoidEverything = true);
 	void SmartAvoid(BWAPI::Unit unit, BWAPI::Position avoidPositionm, BWAPI::Position retreatDirection, BWAPI::Position goalPosition, double distance = 400, bool dontSpread = false);

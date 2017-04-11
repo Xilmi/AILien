@@ -70,5 +70,16 @@ public:
     void                    drawMapInformation();
 
     const UnitData &        getUnitData(BWAPI::Player player) const;
+
+	double					droneScore;
+	double					lingScore;
+	double					hydraScore;
+	double					lurkerScore;
+	double					mutaScore;
+	double					ultraScore;
+	double					guardScore;
+
+	double					supplyIWasAttacked = 400;
+	double					supplyISawAir = 400;
 };
 }

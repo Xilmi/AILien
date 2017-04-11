@@ -17,9 +17,9 @@ UnitData::UnitData()
 	numUnits		    = std::vector<int>(maxTypeID + 1, 0);
 }
 
-void UnitData::updateUnit(BWAPI::Unit unit)
+bool UnitData::updateUnit(BWAPI::Unit unit)
 {
-	if (!unit) { return; }
+	if (!unit) { return false; }
 
     bool firstSeen = false;
     auto & it = unitMap.find(unit);
@@ -44,14 +44,25 @@ void UnitData::updateUnit(BWAPI::Unit unit)
     {
         numUnits[unit->getType().getID()]++;
     }
+	return firstSeen;
 }
 
 void UnitData::removeUnit(BWAPI::Unit unit)
 {
 	if (!unit) { return; }
 
-	mineralsLost += unit->getType().mineralPrice();
-	gasLost += unit->getType().gasPrice();
+	double mineralPrice = unit->getType().mineralPrice();
+	double gasPrice = unit->getType().gasPrice();
+	if (unit->getType().getRace() == BWAPI::Races::Zerg)
+	{
+		if (unit->getType().isTwoUnitsInOneEgg())
+		{
+			mineralPrice /= 2;
+			gasPrice /= 2;
+		}
+	}
+	mineralsLost += mineralPrice;
+	gasLost += gasPrice;
 	numUnits[unit->getType().getID()]--;
 	numDeadUnits[unit->getType().getID()]++;
 		
@@ -108,14 +119,19 @@ const bool UnitData::badUnitInfo(const UnitInfo & ui) const
 	return false;
 }
 
-int UnitData::getGasLost() const 
+double UnitData::getGasLost() const 
 { 
     return gasLost; 
 }
 
-int UnitData::getMineralsLost() const 
+double UnitData::getMineralsLost() const 
 { 
     return mineralsLost; 
+}
+
+double UnitData::totalLost() const
+{
+	return mineralsLost + gasLost;
 }
 
 int UnitData::getNumUnits(BWAPI::UnitType t) const 

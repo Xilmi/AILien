@@ -5,16 +5,40 @@
 
 using namespace UAlbertaBot;
 
-GameCommander::GameCommander() 
-    : _initialScoutSet(false)
+GameCommander::GameCommander()
+	: _initialScoutSet(false)
 {
+	srand(time(NULL));
+	strategyMap[0] = "Freestyle";
+	strategyMap[1] = "MutaLearning";
+	strategyMap[2] = "Muta";
+	strategyMap[3] = "StoicLingMuta";
+	strategyMap[4] = "Learning";
+	strategyMap[5] = "Lurker";
+	strategyMap[6] = "Hydra";
+	strategyMap[7] = "StoicLingHydra";
+	strategyMap[8] = "StoicLingLurker";
+	strategyMap[9] = "StoicHydraLurker";
+	strategyMap[10] = "StoicLingHydraLurker";
+	strategyMap[12] = "StoicLingHydraUltra";
+	strategyMap[13] = "StoicHydra";
+	strategyMap[14] = "StoicLingMutaGuardian";
+	strategyMap[15] = "StoicLingHydraGuardian";
+	strategyMap[16] = "StoicHydraGuardian";
 }
 
 void GameCommander::update()
 {
 	_timerManager.startTimer(TimerManager::All);
+	scorePerFrame = (double)StrategyManager::Instance().getScore(BWAPI::Broodwar->self()) * 24 * 60 / (double)(BWAPI::Broodwar->getFrameCount() + 600 * 60);
+	if (scorePerFrame > highestScorePerFrame)
+	{
+		highestScorePerFrame = scorePerFrame;
+		highestScoreFrame = BWAPI::Broodwar->getFrameCount();
+	}
 
-	if (BWAPI::Broodwar->self()->supplyUsed() < 1 && BWAPI::Broodwar->self()->minerals() < 50)
+	if (BWAPI::Broodwar->self()->supplyUsed() < 1 && BWAPI::Broodwar->self()->minerals() < 50
+		|| scorePerFrame < highestScorePerFrame / 2)
 	{
 		BWAPI::Broodwar->sendText("Good Game, well played, %s", BWAPI::Broodwar->enemy()->getName().c_str());
 		BWAPI::Broodwar->leaveGame();
@@ -185,6 +209,7 @@ void GameCommander::update()
 			if (enemy.second.type == BWAPI::UnitTypes::Terran_Bunker)
 			{
 				enemyDefenseBuildingCost += enemy.second.type.mineralPrice() + enemy.second.type.gasPrice();
+				enemyUnitCost += 4 * BWAPI::UnitTypes::Terran_Marine.mineralPrice();
 			}
 			if (enemy.second.type.isFlyingBuilding() && enemy.second.unit->isFlying())
 			{
@@ -320,15 +345,90 @@ void GameCommander::update()
 	{
 		remainingLurkerTechCost -= BWAPI::TechTypes::Lurker_Aspect.mineralPrice() + BWAPI::TechTypes::Lurker_Aspect.gasPrice();
 	}
-	if (enemyDefenseBuildingCost > enemyUnitCost || (enemyFlyingBuildingCost > 0 && enemyUnitCost == 0)) //When enemy turtles => get more eco!
-	{
-		macroHeavyness = std::max(macroHeavyness, 0.24);
-	}
 
 	double lurkerBonus = 4;
 	if (enemyMobileDetectorCost > 0 || !lurkersStillGood)
 	{
 		lurkerBonus = 1;
+	}
+
+	if (_strategy != "Freestyle" && UnitUtil::GetAllUnitCount(BWAPI::Broodwar->self()->getRace().getWorker()) > 0.75 * 75)
+	{
+		_strategy = "Freestyle";
+		BWAPI::Broodwar->sendText("Freestyle unlocked!");
+	}
+
+	if (_strategy == "StoicLingMuta")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		mutaScore = myTotalCost - myMutaCost - remainingMutaTechCost + InformationManager::Instance().mutaScore;
+	}
+
+	if (_strategy == "StoicHydra")
+	{
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+	}
+
+	if (_strategy == "StoicLingHydra")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+	}
+
+	if (_strategy == "StoicLingLurker")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		lurkerScore = myTotalCost - remainingLurkerTechCost - myLurkerCost + InformationManager::Instance().lurkerScore;
+	}
+
+	if (_strategy == "StoicLingHydraLurker")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+		lurkerScore = myTotalCost - remainingLurkerTechCost - myLurkerCost + InformationManager::Instance().lurkerScore;
+	}
+
+	if (_strategy == "StoicHydraLurker")
+	{
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+		lurkerScore = myTotalCost - remainingLurkerTechCost - myLurkerCost + InformationManager::Instance().lurkerScore;
+	}
+
+	if (_strategy == "StoicLingHydraUltra")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+		ultraScore = myTotalCost - myUltraCost - remainingUltraTechCost + InformationManager::Instance().ultraScore;
+	}
+
+	if (_strategy == "StoicLingMutaGuardian")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		mutaScore = myTotalCost - myMutaCost - remainingMutaTechCost + InformationManager::Instance().mutaScore;
+		guardScore = myTotalCost - myGuardCost - remainingGuardTechCost + InformationManager::Instance().guardScore;
+	}
+
+	if (_strategy == "StoicLingHydraGuardian")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + InformationManager::Instance().lingScore;
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+		guardScore = myTotalCost - myGuardCost - remainingGuardTechCost + InformationManager::Instance().guardScore;
+	}
+
+	if (_strategy == "StoicHydraGuardian")
+	{
+		hydraScore = myTotalCost - remainingHydraTechCost - myHydraCost + InformationManager::Instance().hydraScore;
+		guardScore = myTotalCost - myGuardCost - remainingGuardTechCost + InformationManager::Instance().guardScore;
+	}
+
+	if (_strategy == "Freestyle")
+	{
+		lingScore = myTotalCost - remainingLingTechCost - myLingCost + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
+		mutaScore = myTotalCost - myMutaCost - remainingMutaTechCost + enemyGroundCost + enemyAirCost - enemyAntiAirCost;
+		hydraScore = myTotalCost - myHydraCost - remainingHydraTechCost + enemyGroundCost - enemyAntiGroundCost + enemyAirCost - enemySmallCost * 0.5 - enemyMediumCost * 0.25 - enemyGroundAoE + enemyDefenseBuildingCost / 2;
+		lurkerScore = myTotalCost - myLurkerCost - remainingLurkerTechCost + enemyGroundCost * lurkerBonus - enemyAntiGroundCost - enemyDefenseBuildingCost;
+		ultraScore = myTotalCost - myUltraCost - remainingUltraTechCost + enemyGroundCost - enemyAntiGroundCost;
+		guardScore = myTotalCost - myGuardCost - remainingGuardTechCost + enemyGroundCost - enemyAntiAirCost + enemyGroundAoE + enemyDefenseBuildingCost;
 	}
 	if (_strategy == "Muta")
 	{
@@ -344,10 +444,10 @@ void GameCommander::update()
 	}
 	if (_strategy == "Lurker")
 	{
-		lingScore = myTotalCost - remainingLingTechCost - myLingCost + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
 		lurkerScore = myTotalCost - myLurkerCost - remainingLurkerTechCost + enemyGroundCost * lurkerBonus - enemyAntiGroundCost - enemyDefenseBuildingCost;
 		if (BWAPI::Broodwar->self()->hasResearched(BWAPI::TechTypes::Lurker_Aspect))
 		{
+			lingScore = myTotalCost - remainingLingTechCost - myLingCost + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
 			hydraScore = myTotalCost - myHydraCost - remainingHydraTechCost + enemyGroundCost - enemyAntiGroundCost + enemyAirCost - enemySmallCost * 0.5 - enemyMediumCost * 0.25 - enemyGroundAoE + enemyDefenseBuildingCost / 2;
 			mutaScore = myTotalCost - myMutaCost - remainingMutaTechCost + enemyGroundCost + enemyAirCost - enemyAntiAirCost;
 		}
@@ -359,7 +459,6 @@ void GameCommander::update()
 	}
 	if (_strategy == "Hydra")
 	{
-		lingScore = myTotalCost - remainingLingTechCost - myLingCost + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
 		hydraScore = myTotalCost - myHydraCost - remainingHydraTechCost + enemyGroundCost - enemyAntiGroundCost + enemyAirCost - enemySmallCost * 0.5 - enemyMediumCost * 0.25 - enemyGroundAoE + enemyDefenseBuildingCost / 2;
 		if (BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Muscular_Augments) + BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Grooved_Spines) >= 2)
 		{
@@ -368,13 +467,42 @@ void GameCommander::update()
 		}
 		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Extractor) > 3) //only tech to tier 3 when you have > 3 gas
 		{
+			lingScore = myTotalCost - remainingLingTechCost - myLingCost + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
 			ultraScore = myTotalCost - myUltraCost - remainingUltraTechCost + enemyGroundCost - enemyAntiGroundCost;
 			guardScore = myTotalCost - myGuardCost - remainingGuardTechCost + enemyGroundCost - enemyAntiAirCost + enemyGroundAoE + enemyDefenseBuildingCost;
 		}
 	}
+	if (_strategy == "Learning")
+	{
+		droneScore = myTotalCost + InformationManager::Instance().droneScore;
+		lingScore = myTotalCost - remainingLingTechCost + InformationManager::Instance().lingScore + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
+		hydraScore = myTotalCost - remainingHydraTechCost + InformationManager::Instance().hydraScore + enemyGroundCost - enemyAntiGroundCost + enemyAirCost - enemySmallCost * 0.5 - enemyMediumCost * 0.25 - enemyGroundAoE + enemyDefenseBuildingCost / 2;
+		lurkerScore = myTotalCost - remainingLurkerTechCost + InformationManager::Instance().lurkerScore + enemyGroundCost * lurkerBonus - enemyAntiGroundCost - enemyDefenseBuildingCost;
+		mutaScore = myTotalCost - remainingMutaTechCost + InformationManager::Instance().mutaScore + enemyGroundCost + enemyAirCost - enemyAntiAirCost * 2;
+		ultraScore = myTotalCost - remainingUltraTechCost + InformationManager::Instance().ultraScore + enemyGroundCost - enemyAntiGroundCost;
+		guardScore = myTotalCost - remainingGuardTechCost + InformationManager::Instance().guardScore + enemyGroundCost - enemyAntiAirCost + enemyGroundAoE + enemyDefenseBuildingCost;
+	}
+	if (_strategy == "MutaLearning")
+	{
+		lingScore = myTotalCost - remainingLingTechCost + InformationManager::Instance().lingScore + enemyGroundCost - enemyAntiGroundCost - enemyGroundAoE - enemyAntiMeleeAoE;
+		mutaScore = myTotalCost - remainingMutaTechCost + InformationManager::Instance().mutaScore + enemyGroundCost + enemyAirCost - enemyAntiAirCost * 2;
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Extractor) > 3) //only tech to tier 3 when you have > 3 gas
+		{
+			hydraScore = myTotalCost - remainingHydraTechCost + InformationManager::Instance().hydraScore + enemyGroundCost - enemyAntiGroundCost + enemyAirCost - enemySmallCost * 0.5 - enemyMediumCost * 0.25 - enemyGroundAoE + enemyDefenseBuildingCost / 2;
+			lurkerScore = myTotalCost - remainingLurkerTechCost + InformationManager::Instance().lurkerScore + enemyGroundCost * lurkerBonus - enemyAntiGroundCost - enemyDefenseBuildingCost;
+			ultraScore = myTotalCost - remainingUltraTechCost + InformationManager::Instance().ultraScore + enemyGroundCost - enemyAntiGroundCost;
+			guardScore = myTotalCost - remainingGuardTechCost + InformationManager::Instance().guardScore + enemyGroundCost - enemyAntiAirCost + enemyGroundAoE + enemyDefenseBuildingCost;
+		}
+	}
+
 	if (enemyFlyingAntiAir > 0) //3 Wraiths killed like 10 guardians in one game... don't get Guardians when enemy has stuff like that!
 	{
 		guardScore = 0;
+	}
+
+	if (InformationManager::Instance().supplyIWasAttacked < 400)
+	{
+		macroHeavyness = std::max(6.0, InformationManager::Instance().supplyIWasAttacked - 4) / 150.0;
 	}
 
 	_timerManager.startTimer(TimerManager::MapGrid);
@@ -443,58 +571,15 @@ void GameCommander::drawDebugInterface()
 void GameCommander::drawGameInformation(int x, int y)
 {
     BWAPI::Broodwar->drawTextScreen(x, y, "\x04Players:");
-	BWAPI::Broodwar->drawTextScreen(x+50, y, "%c%s \x04vs. %c%s", BWAPI::Broodwar->self()->getTextColor(), BWAPI::Broodwar->self()->getName().c_str(), 
-                                                                  BWAPI::Broodwar->enemy()->getTextColor(), BWAPI::Broodwar->enemy()->getName().c_str());
+	BWAPI::Broodwar->drawTextScreen(x + 50, y, "%c%s\x04: %d %c%s\x04: %d", BWAPI::Broodwar->self()->getTextColor(), BWAPI::Broodwar->self()->getName().c_str(), (int)InformationManager::Instance().getUnitData(BWAPI::Broodwar->enemy()).totalLost(), BWAPI::Broodwar->enemy()->getTextColor(), BWAPI::Broodwar->enemy()->getName().c_str(), (int)InformationManager::Instance().getUnitData(BWAPI::Broodwar->self()).totalLost());
 	y += 12;
 
-	std::string sEco;
-	if (macroHeavyness < 0.14)
-	{
-		sEco = "Early pool";
-	}
-	else if (macroHeavyness == 0.14)
-	{
-		sEco = "Overpool";
-	}
-	else if (macroHeavyness < 0.22)
-	{
-		sEco = "Late pool";
-	}
-	else
-	{
-		sEco = "12 Hatch";
-	}
-	if (lingScore > 0)
-	{
-		sEco += " into Zerglings";
-	}
-	if (hydraScore > 0)
-	{
-		sEco += " into Hydralisks";
-	}
-	if (lurkerScore > 0)
-	{
-		sEco += " into Lurkers";
-	}
-	if (mutaScore > 0)
-	{
-		sEco += " into Mutalisks";
-	}
-	if (ultraScore > 0)
-	{
-		sEco += " into Ultralisks";
-	}
-	if (guardScore > 0)
-	{
-		sEco += " into Guardians";
-	}
-
-    BWAPI::Broodwar->drawTextScreen(x, y, "\x04Strategy:");
-	BWAPI::Broodwar->drawTextScreen(x + 50, y, "\x03%s \x04", sEco.c_str());
+	BWAPI::Broodwar->drawTextScreen(x, y, "\x04Strategy:");
+	BWAPI::Broodwar->drawTextScreen(x + 50, y, "\x03%s with %d Drones before Army", _strategy.c_str(), int(macroHeavyness * 75));
 	BWAPI::Broodwar->setTextSize();
 	y += 12;
 
-	BWAPI::Broodwar->drawTextScreen(x, y, "\x04" "Desire:");
+	BWAPI::Broodwar->drawTextScreen(x, y, "\x04" "Army:");
 	BWAPI::Broodwar->drawTextScreen(x + 50, y, "\x03" "Zergling: %d Hydralisk: %d Lurker: %d Mutalisk: %d Ultralisk: %d Guardian: %d", int(lingScore), int(hydraScore), int(lurkerScore), int(mutaScore), int(ultraScore), int(guardScore));
 	BWAPI::Broodwar->setTextSize();
 	y += 12;
@@ -502,10 +587,6 @@ void GameCommander::drawGameInformation(int x, int y)
     BWAPI::Broodwar->drawTextScreen(x, y, "\x04Map:");
 	BWAPI::Broodwar->drawTextScreen(x+50, y, "\x03%s", BWAPI::Broodwar->mapFileName().c_str());
 	BWAPI::Broodwar->setTextSize();
-	y += 12;
-
-    BWAPI::Broodwar->drawTextScreen(x, y, "\x04Time:");
-    BWAPI::Broodwar->drawTextScreen(x+50, y, "\x04%d %4dm %3ds", BWAPI::Broodwar->getFrameCount(), (int)(BWAPI::Broodwar->getFrameCount()/(23.8*60)), (int)((int)(BWAPI::Broodwar->getFrameCount()/23.8)%60));
 }
 
 // assigns units to various managers
@@ -694,28 +775,192 @@ void GameCommander::assignUnit(BWAPI::Unit unit, BWAPI::Unitset & set)
 
 void GameCommander::onGameStart()
 {
-	std::random_device rd;
-	std::mt19937 gen(rd());
-	double minMacro = 0.12;
-	double maxMacro = 0.16;
-	std::uniform_real_distribution<double> rndmH(minMacro, maxMacro);
-	macroHeavyness = rndmH(gen);
-	if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Protoss)
+	_strategy = "Freestyle";
+	_sversion = "2017-04-09-21-10";
+	macroHeavyness = 0.14;
+	if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Zerg)
 	{
-		macroHeavyness = 0.22;
-		_strategy = "Muta";
-	}
-	else if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Terran)
-	{
-		macroHeavyness = 0.22;
-		_strategy = "Muta";
+		macroHeavyness = 0.14;
+		_strategy = strategyMap[rand() % 4];
 	}
 	else
 	{
-		macroHeavyness = 0.14;
-		_strategy = "Muta";
+		if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Terran)
+		{
+			_strategy = strategyMap[rand() % (strategyMap.size() + 1)];
+			macroHeavyness = 0.22;
+		}
+		if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Protoss)
+		{
+			_strategy = strategyMap[rand() % (strategyMap.size() + 1)];
+			macroHeavyness = 0.22;
+		}
 	}
 	sunkensPerWorkerSupply = 0.1;
+
+	if (BWAPI::Broodwar->enemy()->getRace() != BWAPI::Races::Unknown)
+	{
+		std::string enemyName = BWAPI::Broodwar->enemy()->getName();
+		std::string enemyRaceName = BWAPI::Broodwar->enemy()->getRace().getName();
+		std::replace(enemyName.begin(), enemyName.end(), ' ', '_');
+
+		std::string enemyFile = Config::Strategy::WriteDir + enemyName + _sversion + ".txt";
+		std::string enemyRaceFile = Config::Strategy::WriteDir + enemyRaceName + _sversion + ".txt";
+		std::string totalFile = Config::Strategy::WriteDir + _sversion + ".txt";
+
+		std::ifstream file(enemyFile.c_str());
+		if (!file.is_open())
+		{
+			file.open(enemyRaceFile.c_str());
+		}
+		if (!file.is_open())
+		{
+			file.open(totalFile.c_str());
+		}
+		if (file.is_open())
+		{
+			std::string line;
+			std::string lastStrategy = "Freestyle";
+			while (std::getline(file, line)) /* read a line */
+			{
+				if (line.find("lingScore") != std::string::npos)
+				{
+					InformationManager::Instance().lingScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().lingScore *= -1;
+					}
+				}
+				if (line.find("hydraScore") != std::string::npos)
+				{
+					InformationManager::Instance().hydraScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().hydraScore *= -1;
+					}
+				}
+				if (line.find("lurkerScore") != std::string::npos)
+				{
+					InformationManager::Instance().lurkerScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().lurkerScore *= -1;
+					}
+				}
+				if (line.find("mutaScore") != std::string::npos)
+				{
+					InformationManager::Instance().mutaScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().mutaScore *= -1;
+					}
+				}
+				if (line.find("ultraScore") != std::string::npos)
+				{
+					InformationManager::Instance().ultraScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().ultraScore *= -1;
+					}
+				}
+				if (line.find("guardScore") != std::string::npos)
+				{
+					InformationManager::Instance().guardScore = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+					if (line.find("-") != std::string::npos)
+					{
+						InformationManager::Instance().guardScore *= -1;
+					}
+				}
+				if (line.find("macroHeavyness") != std::string::npos)
+				{
+					macroHeavyness = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+				}
+				if (line.find("supplyISawAir") != std::string::npos)
+				{
+					InformationManager::Instance().supplyISawAir = std::stod(line.substr(line.find_first_of("0123456789"), line.length() - line.find_first_of("0123456789")));
+				}
+				if (line.find("strategy") != std::string::npos)
+				{
+					lastStrategy = line.substr(line.find_first_of("=") + 1, line.length() - (line.find_first_of("=") + 1));
+				}
+				if (line.find("victory") != std::string::npos)
+				{
+					std::string victory = line.substr(line.find_first_of("=") + 1, line.length() - (line.find_first_of("=") + 1));
+					if (victory == "true")
+					{
+						_strategy = lastStrategy;
+					}
+				}
+			}
+			file.close();
+		}
+	}
+
+	macroHeavyness = std::max(macroHeavyness, 0.04);
+
+	double lowest = 0;
+	lowest = std::min(lowest, InformationManager::Instance().lingScore);
+	lowest = std::min(lowest, InformationManager::Instance().hydraScore);
+	lowest = std::min(lowest, InformationManager::Instance().lurkerScore);
+	lowest = std::min(lowest, InformationManager::Instance().mutaScore);
+	lowest = std::min(lowest, InformationManager::Instance().ultraScore);
+	lowest = std::min(lowest, InformationManager::Instance().guardScore);
+
+	double highest = 0;
+	highest = std::max(highest, InformationManager::Instance().lingScore);
+	highest = std::max(highest, InformationManager::Instance().hydraScore);
+	highest = std::max(highest, InformationManager::Instance().lurkerScore);
+	highest = std::max(highest, InformationManager::Instance().mutaScore);
+	highest = std::max(highest, InformationManager::Instance().ultraScore);
+	highest = std::max(highest, InformationManager::Instance().guardScore);
+
+	double offset = (lowest + highest) * -0.5;
+
+	InformationManager::Instance().lingScore += offset;
+	InformationManager::Instance().hydraScore += offset;
+	InformationManager::Instance().lurkerScore += offset;
+	InformationManager::Instance().mutaScore += offset;
+	InformationManager::Instance().ultraScore += offset;
+	InformationManager::Instance().guardScore += offset;
+
 	//BWAPI::Broodwar->setLatCom(false); //this line made everything way worse than before!
-	BWAPI::Broodwar->sendText("AILien 2017-03-20-21-22");
+	BWAPI::Broodwar->sendText("AILien 2017-04-09-21-13");
+	BWAPI::Broodwar->sendText("Lng: %d Hyd: %d Lrk: %d Mut: %d Ult: %d Grd: %d Mac: %d", int(InformationManager::Instance().lingScore), int(InformationManager::Instance().hydraScore), int(InformationManager::Instance().lurkerScore), int(InformationManager::Instance().mutaScore), int(InformationManager::Instance().ultraScore), int(InformationManager::Instance().guardScore), int(macroHeavyness*75));
+	BWAPI::Broodwar->sendText("Strategy: %s", _strategy.c_str());
+	_startingstrategy = _strategy;
+}
+
+void GameCommander::onEnd(bool victory)
+{
+	std::string enemyName = BWAPI::Broodwar->enemy()->getName();
+	std::string enemyRaceName = BWAPI::Broodwar->enemy()->getRace().getName();
+	std::replace(enemyName.begin(), enemyName.end(), ' ', '_');
+
+	std::string enemyFile = Config::Strategy::WriteDir + enemyName + _sversion + ".txt";
+	std::string enemyRaceFile = Config::Strategy::WriteDir + enemyRaceName + _sversion + ".txt";
+	std::string totalFile = Config::Strategy::WriteDir + _sversion + ".txt";
+
+	std::stringstream ss;
+
+	ss << "lingScore=" << InformationManager::Instance().lingScore << "\n";
+	ss << "hydraScore=" << InformationManager::Instance().hydraScore << "\n";
+	ss << "lurkerScore=" << InformationManager::Instance().lurkerScore << "\n";
+	ss << "mutaScore=" << InformationManager::Instance().mutaScore << "\n";
+	ss << "ultraScore=" << InformationManager::Instance().ultraScore << "\n";
+	ss << "guardScore=" << InformationManager::Instance().guardScore << "\n";
+	ss << "macroHeavyness=" << macroHeavyness << "\n";
+	ss << "supplyISawAir=" << InformationManager::Instance().supplyISawAir << "\n";
+	ss << "strategy=" << _startingstrategy << "\n";
+	if (victory == true)
+	{
+		ss << "victory=true";
+	}
+	else
+	{
+		ss << "victory=false";
+	}
+
+	Logger::LogOverwriteToFile(enemyFile, ss.str());
+	Logger::LogOverwriteToFile(enemyRaceFile, ss.str());
+	Logger::LogOverwriteToFile(totalFile, ss.str());
 }

@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "InformationManager.h"
+#include "UnitUtil.h"
 
 using namespace UAlbertaBot;
 
@@ -453,8 +454,40 @@ void InformationManager::updateUnit(BWAPI::Unit unit)
     {
         return;
     }
+	if (supplyIWasAttacked == 400)
+	{
+		if (unit->getPlayer() == _enemy)
+		{
+			if (!unit->getType().isWorker() && !unit->getType().isBuilding() && unit->getType().supplyProvided() == 0)
+			{
+				supplyIWasAttacked = BWAPI::Broodwar->self()->supplyUsed();
+			}
+		}
+	}
+	if (supplyISawAir == 400)
+	{
+		if (unit->getPlayer() == _enemy)
+		{
+			if (unit->getType().isFlyer() && unit->getType().supplyProvided() == 0)
+			{
+				supplyISawAir = BWAPI::Broodwar->self()->supplyUsed() - _enemy->getKillScore() / 25.0;
+			}
+		}
+	}
 
-    _unitData[unit->getPlayer()].updateUnit(unit);
+    bool firstSeen = _unitData[unit->getPlayer()].updateUnit(unit);
+	//if (firstSeen && unit->getPlayer() == _self)
+	//{
+	//	double unitValue = (unit->getType().mineralPrice() + unit->getType().gasPrice()) / (unit->getType().isTwoUnitsInOneEgg() ? 2 : 1);
+
+	//	droneScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Drone) * BWAPI::UnitTypes::Zerg_Drone.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	lingScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) * BWAPI::UnitTypes::Zerg_Zergling.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	hydraScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	lurkerScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker) * BWAPI::UnitTypes::Zerg_Lurker.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	mutaScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	ultraScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) * BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//	guardScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) * BWAPI::UnitTypes::Zerg_Guardian.supplyRequired() / BWAPI::Broodwar->self()->supplyUsed();
+	//}
 }
 
 // is the unit valid?
@@ -491,6 +524,54 @@ void InformationManager::onUnitDestroy(BWAPI::Unit unit)
     }
 
     _unitData[unit->getPlayer()].removeUnit(unit);
+	int multiplier = 1;
+	if (unit->getPlayer() == BWAPI::Broodwar->self())
+	{
+		multiplier = -1;
+	}
+	double unitValue = (unit->getType().mineralPrice() + unit->getType().gasPrice()) / (unit->getType().isTwoUnitsInOneEgg() ? 2 : 1);
+
+	if (multiplier > 0)
+	{
+		droneScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Drone) * BWAPI::UnitTypes::Zerg_Drone.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Drone.supplyRequired());
+		lingScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) * BWAPI::UnitTypes::Zerg_Zergling.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Zergling.supplyRequired());
+		hydraScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired());
+		lurkerScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker) * BWAPI::UnitTypes::Zerg_Lurker.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Lurker.supplyRequired());
+		mutaScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired());
+		ultraScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) * BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired());
+		guardScore += unitValue * UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) * BWAPI::UnitTypes::Zerg_Guardian.supplyRequired() / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Guardian.supplyRequired());
+	}
+	else
+	{
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Drone) > 0 || droneScore > 0)
+		{
+			droneScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Drone) * BWAPI::UnitTypes::Zerg_Drone.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Drone.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) > 0 || lingScore > 0)
+		{
+			lingScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) * BWAPI::UnitTypes::Zerg_Zergling.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Zergling.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) > 0 || hydraScore > 0)
+		{
+			hydraScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker) > 0 || lurkerScore > 0)
+		{
+			lurkerScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker) * BWAPI::UnitTypes::Zerg_Lurker.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Lurker.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) > 0 || mutaScore > 0)
+		{
+			mutaScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) > 0 || ultraScore > 0)
+		{
+			ultraScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) * BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired());
+		}
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) > 0 || guardScore > 0)
+		{
+			guardScore -= unitValue * std::max((unsigned int)1, UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) * BWAPI::UnitTypes::Zerg_Guardian.supplyRequired()) / std::max(BWAPI::Broodwar->self()->supplyUsed(), BWAPI::UnitTypes::Zerg_Guardian.supplyRequired());
+		}
+	}
 }
 
 bool InformationManager::isCombatUnit(BWAPI::UnitType type) const

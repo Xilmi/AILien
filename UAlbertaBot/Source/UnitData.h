@@ -65,19 +65,20 @@ class UnitData
     std::vector<int>						numDeadUnits;
     std::vector<int>						numUnits;
 
-    int										mineralsLost;
-    int										gasLost;
+	double										mineralsLost = 0;
+	double										gasLost = 0;
 
 public:
 
     UnitData();
 
-    void	updateUnit(BWAPI::Unit unit);
+    bool	updateUnit(BWAPI::Unit unit);
     void	removeUnit(BWAPI::Unit unit);
     void	removeBadUnits();
 
-    int		getGasLost()                                const;
-    int		getMineralsLost()                           const;
+    double		getGasLost()                                const;
+	double		getMineralsLost()                           const;
+	double		totalLost()									const;
     int		getNumUnits(BWAPI::UnitType t)              const;
     int		getNumDeadUnits(BWAPI::UnitType t)          const;
     const	std::map<BWAPI::Unit,UnitInfo> & getUnits() const;

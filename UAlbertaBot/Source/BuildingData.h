@@ -25,6 +25,7 @@ public:
     bool                    isGasSteal;
 	bool                    buildCommandGiven;
 	bool                    underConstruction;
+	bool					creepForSpore = false;
 
 	Building() 
 		: desiredPosition   (0,0)

@@ -53,21 +53,19 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	manageBuildOrderQueue();
 	_queue.clearAll();
 
-	double hydraSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired();
+	double hydraCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk);
+	double mutaCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk);
+	double devourerCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Devourer);
+	double scourgeCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Scourge);
+	double devourerCost = devourerCount * BWAPI::UnitTypes::Zerg_Devourer.gasPrice() + BWAPI::UnitTypes::Zerg_Devourer.mineralPrice();
+	
+	double hydraSupply = hydraCount * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired();
 	double lurkerSupply = (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker) + UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Lurker_Egg)) * BWAPI::UnitTypes::Zerg_Lurker.supplyRequired();
-	double mutaSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired();
+	double mutaSupply = mutaCount * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired();
 	double lingSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) * BWAPI::UnitTypes::Zerg_Zergling.supplyRequired();
 	double ultraSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) * BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired();
 	double guardSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) * BWAPI::UnitTypes::Zerg_Guardian.supplyRequired();
-
-	if (guardScore > mutaScore && mutaSupply == 0) //We want guardians but have no mutas? simply go for mutas first
-	{
-		mutaScore = guardScore;
-	}
-	if (lurkerScore > hydraScore && hydraSupply == 0) //We want guardians but have no mutas? simply go for mutas first
-	{
-		hydraScore = lurkerScore;
-	}
+	double devourerSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Devourer) * BWAPI::UnitTypes::Zerg_Devourer.supplyRequired();
 
 	bool lingsAllowed = true;
 
@@ -100,7 +98,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	int chitinLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Chitinous_Plating);
 	int anabolicLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Anabolic_Synthesis);
 	int hatchesInProgress = baseCount - UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hatchery, true);
-	int queuedSupplyProviders = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord) - UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, true);
+	int queuedSupplyProviders = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, false, 1.0) - UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, true);
 	int airAttackLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Zerg_Flyer_Attacks);
 	int airDefenseLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Zerg_Flyer_Carapace);
 	int meleeAttackLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Zerg_Melee_Attacks);
@@ -115,6 +113,8 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 
 	double enemyUnitCost = 0;
 	double enemyGroundUnitCost = 0;
+	double enemyAirUnitCost = 0;
+	double scourgeAbleHP = 0;
 	double myUnitCost = 0;
 	double mySunkenValue = 0;
 	bool enemyHasVulture = false;
@@ -156,6 +156,14 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 					enemyGroundUnitCost += enemy.second.type.mineralPrice() + enemy.second.type.gasPrice();
 				}
 			}
+			if (enemy.second.type.isFlyer())
+			{
+				enemyAirUnitCost += enemy.second.type.mineralPrice() + enemy.second.type.gasPrice();
+				if (enemy.second.type.topSpeed() <= BWAPI::UnitTypes::Zerg_Scourge.topSpeed())
+				{
+					scourgeAbleHP += enemy.second.lastHealth + enemy.second.lastShields;
+				}
+			}
 			if (enemy.second.type == BWAPI::UnitTypes::Terran_Vulture)
 			{
 				enemyHasVulture = true;
@@ -165,6 +173,10 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	if (enemyHasVulture)
 	{
 		lingsAllowed = false;
+	}
+	if (InformationManager::Instance().getMainBaseLocation(BWAPI::Broodwar->enemy()) != nullptr)
+	{
+		enemyBuildingFound = true;
 	}
 
 	for (auto myUnits : InformationManager::Instance().getUnitData(BWAPI::Broodwar->self()).getUnits())
@@ -196,9 +208,39 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	double workerFactor = std::max(0.3, macroHeavyness * 3);
 
 	int maxWorkerSupply = 150;
-	double workerSupplyBeforeUnits =maxWorkerSupply * macroHeavyness;
+	
+	if (remainingWorkerPhase == -1 && remainingArmyPhase == -1)
+	{
+		remainingWorkerPhase = macroHeavyness * maxWorkerSupply * 25 - 4 * BWAPI::Broodwar->self()->getRace().getWorker().mineralPrice();
+		remainingArmyPhase = 0;
+	}
+	if (remainingArmyPhase == 0 && remainingWorkerPhase < 0)
+	{
+		remainingWorkerPhase = 0;
+		remainingArmyPhase = (armySupply + workerSupply) * 25;
+	}
+	else if (remainingWorkerPhase == 0 && remainingArmyPhase < 0)
+	{
+		remainingArmyPhase = 0;
+		if (remainingWorkerPhaseHelper > 0)
+		{
+			remainingWorkerPhase = remainingWorkerPhaseHelper;
+			remainingWorkerPhaseHelper = 0;
+		}
+		else
+		{
+			remainingWorkerPhase = (armySupply + workerSupply) * workerFactor * 25;
+		}
+	}
+
 	bool underPressure = false;
 	bool needSunkens = false;
+	bool needSpores = false;
+
+	if (enemyAirUnitCost > 0 && sporeColonyCount < WorkerManager::Instance().workerData.getNumDepots(false) && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spire, true) + greaterSpireCount + UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk_Den, true) == 0)
+	{
+		needSpores = true;
+	}
 	//BWAPI::Broodwar->printf("enemyGroundUnitCost: %d myUnitCost: %d", int(enemyGroundUnitCost), int(myUnitCost));
 	if (enemyGroundUnitCost > myUnitCost)
 	{
@@ -208,20 +250,17 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	{
 		maxWorkerSupply = std::min(WorkerManager::Instance().workerData.getNumDepots(false) * 38, maxWorkerSupply); //TODO: count all patches near our depots
 	}
-	if (enemyUnitCost > myUnitCost * 2.0 && enemyUnitCost > 50)
+	if (enemyGroundUnitCost > myUnitCost && enemyUnitCost > 50)
 	{
 		if (armySupply < workerSupply) //Well, we can't just spam lings when we are being camped... need to allow teching too
 		{
-			workerSupplyBeforeUnits = 6;
-			workerFactor = 0.3;
+			if (remainingArmyPhase == 0)
+			{
+				remainingArmyPhase += enemyGroundUnitCost - myUnitCost;
+				remainingWorkerPhaseHelper = remainingWorkerPhase;
+				remainingWorkerPhase = 0;
+			}
 			underPressure = true;
-		}
-	}
-	else if (enemyUnitCost > 0 && sunkenUnlocked) //let's be more macro-oriented after our initial rush
-	{
-		if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Protoss || BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Terran)
-		{
-			workerSupplyBeforeUnits *= 1.5;
 		}
 	}
 	checkCancels(underPressure);
@@ -237,15 +276,28 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 		sunkenUnlocked = true;
 	}
 	//while we are waiting for our 2nd base to finish we need to spam lings in order to hold zealot-rush or the likes
-	if ((sunkenUnlocked == false || finishedBaseCount < 2 || !enemyBuildingFound) && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool) > 0)
+	if ((sunkenUnlocked == false || finishedBaseCount < 2 || !enemyBuildingFound) && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool) > 0 && lingScore > 0)
 	{
-		workerSupplyBeforeUnits = std::min(26.0, workerSupplyBeforeUnits);
-		workerFactor = 0;
 		underPressure = true;
 	}
 
 	availableMinerals -= BuildingManager::Instance().getReservedMinerals();
 	availableGas -= BuildingManager::Instance().getReservedGas();
+
+	if (guardScore > mutaScore 
+		&& mutaCount < availableMinerals / BWAPI::UnitTypes::Zerg_Guardian.mineralPrice() 
+		&& mutaCount < availableGas / BWAPI::UnitTypes::Zerg_Guardian.gasPrice())
+	{
+		mutaScore = guardScore;
+	}
+	if (lurkerScore > hydraScore 
+		&& hydraCount < availableMinerals / BWAPI::UnitTypes::Zerg_Hydralisk.mineralPrice()
+		&& hydraCount < availableGas / BWAPI::UnitTypes::Zerg_Hydralisk.gasPrice())
+	{
+		hydraScore = lurkerScore;
+	}
+
+	double highestScore = std::max(lingScore, std::max(hydraScore, std::max(lurkerScore, std::max(mutaScore, std::max(ultraScore, guardScore)))));
 
 	int mineralsToSave = 0;
 	int gasToSave = 0;
@@ -310,10 +362,25 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	spireCount += greaterSpireCount;
 
 	int desiredExtractors = int(std::floor(0.042 * workerSupply));
+	if ((mutaScore >= highestScore && spireCount > 0)
+		|| (lurkerScore >= highestScore && lurkerAspect == true)
+		|| (guardScore >= highestScore && greaterSpireCount > 0)
+		|| (ultraScore >= highestScore && cavernCount > 0))
+	{
+		desiredExtractors = int(std::floor(0.084 * workerSupply));
+	}
 	desiredExtractors = std::min(desiredExtractors, WorkerManager::Instance().workerData.getNumDepots(true));
-	if (armySupply == 0)
+	if (armySupply == 0 && lingScore > 0)
 	{
 		desiredExtractors = 0;
+	}
+	if (desiredExtractors == 0 && lingScore <= 0)
+	{
+		if (remainingWorkerPhase == 0)
+		{
+			remainingArmyPhase = 0;
+			remainingWorkerPhase = (24 - workerSupply) * 25;
+		}
 	}
 	//BWAPI::Broodwar->drawTextScreen(4, 250, "desiredExtractors: %d\narmySupply: %d\nworkerSupply: %d", desiredExtractors, armySupply, workerSupply);
 	//BWAPI::Broodwar->printf("Minerals: %d Gas: %d Larvae: %d", availableMinerals, availableGas, availableLarvae);
@@ -326,6 +393,49 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 			availableMinerals -= BWAPI::Broodwar->self()->getRace().getSupplyProvider().mineralPrice();
 		}
 	}
+	if (needSpores)
+	{
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Creep_Colony, true)
+			&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Evolution_Chamber, true))
+		{
+			if (availableMinerals >= BWAPI::UnitTypes::Zerg_Spore_Colony.mineralPrice())
+			{
+				_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Spore_Colony, false);
+				availableMinerals -= BWAPI::UnitTypes::Zerg_Spore_Colony.mineralPrice();
+			}
+			else
+			{
+				mineralsToSave += BWAPI::UnitTypes::Zerg_Spore_Colony.mineralPrice();
+			}
+		}
+		if (evoCount == 0)
+		{
+			if (availableMinerals > BWAPI::UnitTypes::Zerg_Evolution_Chamber.mineralPrice()
+				&& availableGas > BWAPI::UnitTypes::Zerg_Evolution_Chamber.gasPrice())
+			{
+				_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Evolution_Chamber, false);
+				availableMinerals -= BWAPI::UnitTypes::Zerg_Evolution_Chamber.mineralPrice();
+				availableGas -= BWAPI::UnitTypes::Zerg_Evolution_Chamber.gasPrice();
+			}
+			else
+			{
+				mineralsToSave = BWAPI::UnitTypes::Zerg_Evolution_Chamber.mineralPrice();
+				gasToSave = BWAPI::UnitTypes::Zerg_Evolution_Chamber.gasPrice();
+			}
+		}
+		if (creepColonyCount + sporeColonyCount < WorkerManager::Instance().workerData.getNumDepots(false) && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Evolution_Chamber, true) > 0)
+		{
+			if (availableMinerals >= BWAPI::UnitTypes::Zerg_Creep_Colony.mineralPrice())
+			{
+				_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Creep_Colony, false, false, true);
+				availableMinerals -= BWAPI::UnitTypes::Zerg_Creep_Colony.mineralPrice();
+			}
+			else
+			{
+				mineralsToSave += BWAPI::UnitTypes::Zerg_Creep_Colony.mineralPrice();
+			}
+		}
+	}
 	if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Creep_Colony, true)
 		&& availableMinerals >= BWAPI::UnitTypes::Zerg_Sunken_Colony.mineralPrice()
 		&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true))
@@ -333,8 +443,9 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 		_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Sunken_Colony, false);
 		availableMinerals -= BWAPI::UnitTypes::Zerg_Sunken_Colony.mineralPrice();
 	}
+
 	int desiredSunkens = int(workerSupply * sunkensPerWorkerSupply);
-	if (creepColonyCount + sunkenColonyCount + sporeColonyCount < desiredSunkens
+	if (creepColonyCount + sunkenColonyCount < desiredSunkens
 		&& poolCount > 0
 		&& sunkenUnlocked
 		&& needSunkens)
@@ -349,22 +460,30 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 			mineralsToSave = BWAPI::UnitTypes::Zerg_Creep_Colony.mineralPrice();
 		}
 	}
-	if (shouldExpand && availableMinerals + BuildingManager::Instance().getReservedMinerals() < BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice())
+	if (shouldExpand && availableMinerals + BuildingManager::Instance().getReservedMinerals() < BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice() * 2.0 / 3.0)
 	{
 		return;
 	}
 	double costOfPreferredUnit = (8 * 50 + 100) / 9.0;
-	if (hydraScore > lingScore && hydraDenCount > 0)
+	if (hydraScore >= highestScore && hydraDenCount > 0)
 	{
 		costOfPreferredUnit = 100;
 	}
-	if ((availableMinerals >= BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice() && shouldExpand)
+	if ((availableMinerals >= BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice() * 2.0 / 3.0 && shouldExpand)
 		|| (availableLarvae < 1 && availableMinerals >= BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice() && StrategyManager::Instance().needMacroHatch(baseCount, costOfPreferredUnit)))
 	{
 		_queue.queueAsHighestPriority(MetaType(BWAPI::Broodwar->self()->getRace().getCenter()), false);
 		availableMinerals -= BWAPI::Broodwar->self()->getRace().getCenter().mineralPrice();
 	}
-	if (poolCount == 0 && workerSupply > 6 && (workerSupply >= workerSupplyBeforeUnits - 4 || baseCount >= 2))
+	double mineralRate = WorkerManager::Instance().getNumMineralWorkers() * 0.045;
+	double rwpBeforePool = mineralRate * BWAPI::UnitTypes::Zerg_Spawning_Pool.buildTime() / 2.5;
+	if (lingScore <= 0)
+	{
+		rwpBeforePool += mineralRate * BWAPI::UnitTypes::Zerg_Hydralisk_Den.buildTime() / 2.5;
+	}
+	rwpBeforePool -= 3 * 50 * finishedBaseCount;
+	rwpBeforePool = std::max(0.0, rwpBeforePool);
+	if (poolCount == 0 && workerSupply > 6 && remainingWorkerPhase < rwpBeforePool)
 	{
 		_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Spawning_Pool, false);
 		availableMinerals -= BWAPI::UnitTypes::Zerg_Spawning_Pool.mineralPrice();
@@ -392,11 +511,20 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	}
 	if (lingSupply > 0)
 	{
-		if (availableGas >= BWAPI::UpgradeTypes::Metabolic_Boost.gasPrice() && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) >= 1 && metabolicBoostLevel == 0)
+		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) >= 1 && metabolicBoostLevel == 0)
 		{
-			_queue.queueAsHighestPriority(BWAPI::UpgradeTypes::Metabolic_Boost, false);
-			availableMinerals -= BWAPI::UpgradeTypes::Metabolic_Boost.mineralPrice();
-			availableGas -= BWAPI::UpgradeTypes::Metabolic_Boost.gasPrice();
+			if (availableGas >= BWAPI::UpgradeTypes::Metabolic_Boost.gasPrice()
+				&& availableMinerals >= BWAPI::UpgradeTypes::Metabolic_Boost.mineralPrice())
+			{
+				_queue.queueAsHighestPriority(BWAPI::UpgradeTypes::Metabolic_Boost, false);
+				availableMinerals -= BWAPI::UpgradeTypes::Metabolic_Boost.mineralPrice();
+				availableGas -= BWAPI::UpgradeTypes::Metabolic_Boost.gasPrice();
+			}
+			else
+			{
+				mineralsToSave += BWAPI::UpgradeTypes::Metabolic_Boost.mineralPrice();
+				gasToSave += BWAPI::UpgradeTypes::Metabolic_Boost.gasPrice();
+			}
 		}
 		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) >= 1
 			&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hive, true) > 0 && adrenalGlandsLevel == 0 && metabolicBoostLevel > 0
@@ -464,7 +592,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	}
 	if (hydraSupply > 0)
 	{
-		if (lurkerAspect == true || hydraScore > lurkerScore)
+		if (lurkerAspect == true || lurkerScore < highestScore)
 		{
 			if (availableGas >= BWAPI::UpgradeTypes::Muscular_Augments.gasPrice() && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk_Den, true) >= 1 && augmentLevel == 0)
 			{
@@ -480,7 +608,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 			}
 		}
 	}
-	if (mutaSupply + guardSupply >= 32)
+	if (mutaSupply + guardSupply + devourerSupply >= 32)
 	{
 		if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Greater_Spire, true) == 0 && guardScore > mutaScore && guardScore > hydraScore && guardScore > lingScore && guardScore > ultraScore)
 		{
@@ -663,7 +791,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	}
 	if (availableMinerals >= BWAPI::Broodwar->self()->getRace().getWorker().mineralPrice() 
 		&& availableLarvae > 0 
-		&& armySupply * workerFactor + workerSupplyBeforeUnits > workerSupply 
+		&& remainingWorkerPhase > 0
 		&& workerSupply < maxWorkerSupply)
 	{
 		_queue.queueAsLowestPriority(MetaType(BWAPI::Broodwar->self()->getRace().getWorker()), false);
@@ -671,7 +799,40 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	}
 	else
 	{
-		if (lingScore >= hydraScore && lingScore >= mutaScore && lingScore >= ultraScore && lingScore >= guardScore && lingScore >= lurkerScore)
+		if (enemyAirUnitCost > devourerCost && mutaCount > devourerCount && devourerCount < 9 && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Greater_Spire, true) > 0)
+		{
+			if (availableMinerals >= BWAPI::UnitTypes::Zerg_Devourer.mineralPrice()
+				&& availableGas >= BWAPI::UnitTypes::Zerg_Devourer.gasPrice())
+			{
+				_queue.queueAsLowestPriority(BWAPI::UnitTypes::Zerg_Devourer, false);
+				availableMinerals -= BWAPI::UnitTypes::Zerg_Devourer.mineralPrice();
+				availableGas -= BWAPI::UnitTypes::Zerg_Devourer.gasPrice();
+				mutaCount--;
+			}
+			else
+			{
+				mineralsToSave = BWAPI::UnitTypes::Zerg_Devourer.mineralPrice();
+				gasToSave = BWAPI::UnitTypes::Zerg_Devourer.gasPrice();
+			}
+		}
+		if (scourgeAbleHP > scourgeCount * BWAPI::UnitTypes::Zerg_Scourge.airWeapon().damageAmount()
+			&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spire, true) > 0)
+		{
+			if (availableMinerals >= BWAPI::UnitTypes::Zerg_Scourge.mineralPrice()
+				&& availableGas >= BWAPI::UnitTypes::Zerg_Scourge.gasPrice())
+			{
+				_queue.queueAsLowestPriority(BWAPI::UnitTypes::Zerg_Scourge, false);
+				availableMinerals -= BWAPI::UnitTypes::Zerg_Scourge.mineralPrice();
+				availableGas -= BWAPI::UnitTypes::Zerg_Scourge.gasPrice();
+				availableLarvae--;
+			}
+			else
+			{
+				mineralsToSave = BWAPI::UnitTypes::Zerg_Scourge.mineralPrice();
+				gasToSave = BWAPI::UnitTypes::Zerg_Scourge.gasPrice();
+			}
+		}
+		if (lingScore >= highestScore)
 		{
 			mineralsToSave = BWAPI::UnitTypes::Zerg_Zergling.mineralPrice();
 			while (availableMinerals >= BWAPI::UnitTypes::Zerg_Zergling.mineralPrice() && availableLarvae > 0 && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) > 0)
@@ -681,7 +842,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				availableLarvae--;
 			}
 		}
-		if (hydraScore >= lingScore) //Building hydra-den as soon as hydrascore > lingscore even if hydra is not favorite
+		if (hydraScore >= lingScore && lingScore < 0) //Building hydra-den as soon as hydrascore > lingscore even if hydra is not favorite
 		{
 			if (availableMinerals >= BWAPI::UnitTypes::Zerg_Hydralisk_Den.mineralPrice()
 				&& availableGas >= BWAPI::UnitTypes::Zerg_Hydralisk_Den.gasPrice()
@@ -698,8 +859,24 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				gasToSave = BWAPI::UnitTypes::Zerg_Hydralisk_Den.gasPrice();
 			}
 		}
-		if (hydraScore >= lingScore && hydraScore >= mutaScore && hydraScore >= ultraScore && hydraScore >= guardScore && hydraScore >= lurkerScore)
+		if (hydraScore >= highestScore)
 		{
+			if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) >= 1
+				&& hydraDenCount == 0)
+			{
+				if (availableMinerals >= BWAPI::UnitTypes::Zerg_Hydralisk_Den.mineralPrice()
+					&& availableGas >= BWAPI::UnitTypes::Zerg_Hydralisk_Den.gasPrice())
+				{
+					_queue.queueAsHighestPriority(BWAPI::UnitTypes::Zerg_Hydralisk_Den, false);
+					availableMinerals -= BWAPI::UnitTypes::Zerg_Hydralisk_Den.mineralPrice();
+					availableGas -= BWAPI::UnitTypes::Zerg_Hydralisk_Den.gasPrice();
+				}
+				else
+				{
+					mineralsToSave = BWAPI::UnitTypes::Zerg_Hydralisk_Den.mineralPrice();
+					gasToSave = BWAPI::UnitTypes::Zerg_Hydralisk_Den.gasPrice();
+				}
+			}
 			if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk_Den, true) > 0)
 			{
 				mineralsToSave = BWAPI::UnitTypes::Zerg_Hydralisk.mineralPrice();
@@ -715,7 +892,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				}
 			}
 		}
-		if (mutaScore >= lingScore && mutaScore >= hydraScore && mutaScore >= ultraScore && mutaScore >= guardScore && mutaScore >= lurkerScore)
+		if (mutaScore >= highestScore)
 		{
 			mineralsToSave = BWAPI::UnitTypes::Zerg_Mutalisk.mineralPrice();
 			gasToSave = BWAPI::UnitTypes::Zerg_Mutalisk.gasPrice();
@@ -726,7 +903,8 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 			}
 			if (UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spire) > 0 
 				&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spire, true) == 0
-				&& !underPressure) //when we are waiting for our spire to finish, we'll want to save up for the mutas
+				&& !underPressure
+				&& remainingArmyPhase > 0) //when we are waiting for our spire to finish, we'll want to save up for the mutas
 			{
 				gasToSave = availableLarvae * 100;
 				mineralsToSave = std::min(gasToSave, availableGas);
@@ -760,7 +938,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				availableLarvae--;
 			}
 		}
-		if (ultraScore >= lingScore && ultraScore >= hydraScore && ultraScore >= mutaScore && ultraScore >= guardScore && ultraScore >= lurkerScore)
+		if (ultraScore >= highestScore)
 		{
 			mineralsToSave = BWAPI::UnitTypes::Zerg_Ultralisk.mineralPrice();
 			gasToSave = BWAPI::UnitTypes::Zerg_Ultralisk.gasPrice();
@@ -832,7 +1010,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				availableLarvae--;
 			}
 		}
-		if (guardScore >= lingScore && guardScore >= hydraScore && guardScore >= mutaScore && guardScore >= ultraScore && guardScore >= lurkerScore)
+		if (guardScore >= highestScore)
 		{
 			mineralsToSave = BWAPI::UnitTypes::Zerg_Guardian.mineralPrice() + BWAPI::UnitTypes::Zerg_Mutalisk.mineralPrice();
 			gasToSave = BWAPI::UnitTypes::Zerg_Guardian.gasPrice() + BWAPI::UnitTypes::Zerg_Mutalisk.gasPrice();
@@ -885,7 +1063,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 				mutaSupply -= BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired();
 			}
 		}
-		if (lurkerScore >= lingScore && lurkerScore >= hydraScore && lurkerScore >= mutaScore && lurkerScore >= ultraScore && lurkerScore >= guardScore)
+		if (lurkerScore >= highestScore)
 		{
 			if (!lurkerAspect && !BWAPI::Broodwar->self()->isResearching(BWAPI::TechTypes::Lurker_Aspect)
 				&& UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk_Den, true) >= 1
@@ -998,7 +1176,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	}
 	while (availableMinerals >= mineralsToSave + BWAPI::Broodwar->self()->getRace().getWorker().mineralPrice() 
 			&& availableLarvae > larvaeToSave 
-			&& armySupply * workerFactor + workerSupplyBeforeUnits > workerSupply 
+			&& remainingWorkerPhase > 0
 			&& workerSupply < maxWorkerSupply)
 	{
 		_queue.queueAsLowestPriority(MetaType(BWAPI::Broodwar->self()->getRace().getWorker()), false);
@@ -1008,7 +1186,7 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 	while (availableMinerals >= mineralsToSave + BWAPI::UnitTypes::Zerg_Hydralisk.mineralPrice()
 			&& availableGas >= gasToSave + BWAPI::UnitTypes::Zerg_Hydralisk.gasPrice()
 			&& availableLarvae > larvaeToSave && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk_Den, true) > 0
-			&& hydraScore > lingScore)
+			&& hydraScore >= lingScore)
 	{
 		_queue.queueAsLowestPriority(BWAPI::UnitTypes::Zerg_Hydralisk, false);
 		availableMinerals -= BWAPI::UnitTypes::Zerg_Hydralisk.mineralPrice();
@@ -1026,7 +1204,8 @@ void ProductionManager::update(double macroHeavyness, double sunkensPerWorkerSup
 		availableLarvae--;
 	}
 	while (availableMinerals >= mineralsToSave + BWAPI::UnitTypes::Zerg_Zergling.mineralPrice()
-		&& availableLarvae > larvaeToSave && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) > 0)
+		&& availableLarvae > larvaeToSave && UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool, true) > 0
+		&& lingScore > 0)
 	{
 		_queue.queueAsLowestPriority(BWAPI::UnitTypes::Zerg_Zergling, false);
 		availableMinerals -= BWAPI::UnitTypes::Zerg_Zergling.mineralPrice();
@@ -1059,7 +1238,23 @@ void ProductionManager::manageBuildOrderQueue()
 	while (!_queue.isEmpty()) 
 	{
 		// this is the unit which can produce the currentItem
-		BWAPI::Unit producer = getProducer(currentItem.metaType, MapTools::Instance().getBaseCenter());
+		BWAPI::Unit producer = nullptr;
+		if (currentItem.metaType.isUnit())
+		{
+			if (currentItem.metaType.getUnitType().isWorker())
+			{
+				producer = getProducer(currentItem.metaType, WorkerManager::Instance().getLeastSaturatedDepot(nullptr, true) ? WorkerManager::Instance().getLeastSaturatedDepot(nullptr, true)->getPosition() : MapTools::Instance().getBaseCenter());
+			}
+			else
+			{
+				producer = getProducer(currentItem.metaType, MapTools::Instance().getBaseCenter());
+			}
+		}
+		else
+		{
+			producer = getProducer(currentItem.metaType, MapTools::Instance().getBaseCenter());
+		}
+
 		// check to see if we can make it right now
 		bool canMake = canMakeNow(producer, currentItem.metaType);
 
@@ -1068,6 +1263,7 @@ void ProductionManager::manageBuildOrderQueue()
 		{
 			// construct a temporary building object
 			Building b(currentItem.metaType.getUnitType(), producer->getTilePosition());
+			b.creepForSpore = currentItem.creepForSpore;
             b.isGasSteal = currentItem.isGasSteal;
 
 			// set the producer as the closest worker, but do not set its job yet
@@ -1087,6 +1283,21 @@ void ProductionManager::manageBuildOrderQueue()
 			create(producer, currentItem);
 			_assignedWorkerForThisBuilding = false;
 			_haveLocationForThisBuilding = false;
+
+			if (currentItem.metaType.getUnitType().isWorker())
+			{
+				remainingWorkerPhase -= currentItem.metaType.getUnitType().mineralPrice();
+			}
+			else if (currentItem.metaType.getUnitType() != BWAPI::UnitTypes::None)
+			{
+				if (!currentItem.metaType.getUnitType().isBuilding()
+					&& currentItem.metaType.getUnitType().supplyProvided() == 0
+					&& remainingWorkerPhase <= 0)
+				{
+					remainingArmyPhase -= currentItem.metaType.getUnitType().mineralPrice();
+					remainingArmyPhase -= currentItem.metaType.getUnitType().gasPrice();
+				}
+			}
 
 			// and remove it from the _queue
 			_queue.removeCurrentHighestPriorityItem();
@@ -1341,14 +1552,12 @@ bool ProductionManager::canMakeNow(BWAPI::Unit producer, MetaType t)
 
 bool ProductionManager::detectBuildOrderDeadlock()
 {
-	// if the _queue is empty there is no deadlock
-	if (BWAPI::Broodwar->self()->supplyTotal() >= 390)
+	int supplyTotal = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, false, 1.0) * BWAPI::Broodwar->self()->getRace().getSupplyProvider().supplyProvided();
+
+	if (supplyTotal >= 390)
 	{
 		return false;
 	}
-
-	// are any supply providers being built currently
-	int supplyInProgress = BWAPI::Broodwar->self()->supplyTotal();
 
 	double factor = 0.95;
 
@@ -1358,7 +1567,7 @@ bool ProductionManager::detectBuildOrderDeadlock()
 	}
 
 	// if we don't have enough supply and none is being built, there's a deadlock
-	if (BWAPI::Broodwar->self()->supplyUsed() > int(supplyInProgress * factor))
+	if (BWAPI::Broodwar->self()->supplyUsed() > int(supplyTotal * factor))
 	{
 	    return true;
 	}
@@ -1617,17 +1826,5 @@ void ProductionManager::checkCancels(bool underPressure)
 		{
 			unit->cancelMorph();
 		}
-		//if (underPressure && unit->getType() == BWAPI::UnitTypes::Zerg_Hatchery)
-		//{
-		//	if (WorkerManager::Instance().isDepot(unit, false))
-		//	{
-		//		BWAPI::Unit closestEnemy = unit->getClosestUnit(BWAPI::Filter::IsEnemy&&BWAPI::Filter::CanAttack);
-		//		if (closestEnemy && closestEnemy->getDistance(unit->getPosition()) < 400 && !closestEnemy->getType().isWorker())
-		//		{
-		//			unit->cancelMorph();
-		//			sunkenUnlocked = true;
-		//		}
-		//	}
-		//}
 	}
 }

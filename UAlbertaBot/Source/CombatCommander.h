@@ -23,7 +23,7 @@ class CombatCommander
 	void            updateIdleSquad();
 	bool            isSquadUpdateFrame();
 	int             getNumType(BWAPI::Unitset & units, BWAPI::UnitType type);
-	double			getForcePower(std::vector<UnitInfo> units, std::vector<UnitInfo> enemyunits, BWAPI::Position pos, double& averageHPRatio);
+	double			getForcePower(std::vector<UnitInfo> units, std::vector<UnitInfo> enemyunits, BWAPI::Position pos, double& averageHPRatio, bool mine = false);
 
 	BWAPI::Unit     findClosestDefender(const Squad & defenseSquad, BWAPI::Position pos, bool flyingDefender);
 	UAlbertaBot::UnitInfo findClosestEnemy(BWAPI::Position pos, bool ignoreFlyers = false, bool iAmFlyer = false, bool considerRange = false);

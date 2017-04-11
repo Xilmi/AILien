@@ -43,6 +43,9 @@ class GameCommander
     void                    assignUnit(BWAPI::Unit unit, BWAPI::Unitset & set);
 	bool                    isAssigned(BWAPI::Unit unit) const;
 	std::string				_strategy;
+	std::string				_startingstrategy;
+	std::string				_sversion;
+	std::map<int, std::string> strategyMap;
 
 public:
 	GameCommander();
@@ -55,6 +58,7 @@ public:
 	void setScoutUnits();
 	void setCombatUnits();
 	void onGameStart();
+	void onEnd(bool victory);
 
 	void drawDebugInterface();
     void drawGameInformation(int x, int y);
@@ -74,6 +78,7 @@ public:
 	double macroHeavyness;
 	double sunkensPerWorkerSupply;
 
+	double droneScore = 0;
 	double lingScore = 0;
 	double hydraScore = 0;
 	double lurkerScore = 0;
@@ -83,6 +88,9 @@ public:
 	double enemyUnitCost = 0;
 	double enemyAirCost = 0;
 	double enemyAntiAirCost = 0;
+	double scorePerFrame = 0;
+	double highestScorePerFrame = 0;
+	int highestScoreFrame = 0;
 };
 
 }

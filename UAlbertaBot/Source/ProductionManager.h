@@ -40,6 +40,9 @@ class ProductionManager
 
     int                 getFreeMinerals();
     int                 getFreeGas();
+	double				remainingArmyPhase = -1;
+	double				remainingWorkerPhase = -1;
+	double				remainingWorkerPhaseHelper = 0;
     bool                canPlanBuildOrderNow() const;
 
 public:

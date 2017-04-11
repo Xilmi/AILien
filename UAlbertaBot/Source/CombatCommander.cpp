@@ -146,7 +146,7 @@ void CombatCommander::command()
 	{
 		_broodForce = false;
 	}
-
+	int turntakers = BWAPI::Broodwar->getFrameCount() % 3;
 	for each (auto ui in InformationManager::Instance().getUnitInfo(BWAPI::Broodwar->self()))
 	{
 		BWAPI::Unit unit = ui.first;
@@ -155,6 +155,10 @@ void CombatCommander::command()
 			continue;
 		}
 		if (unit->getType().isBuilding() || unit->getType().isWorker() || unit->getType().isDetector())
+		{
+			continue;
+		}
+		if (unit->getID() % 3 != turntakers)
 		{
 			continue;
 		}
@@ -173,7 +177,7 @@ void CombatCommander::command()
 		{
 			ignoreAirToAir = true;
 		}
-		UAlbertaBot::UnitInfo closestEnemy = findClosestEnemy(unit->getPosition(), false, ignoreNoAntiAir, true);
+		UAlbertaBot::UnitInfo closestEnemy = findClosestEnemy(unit->getPosition(), ignoreFlyers, ignoreNoAntiAir, true);
 		BWAPI::Position attackLocation = getMyAttackLocation(unit);
 		//BWAPI::Broodwar->drawLineMap(unit->getPosition(), attackLocation, BWAPI::Colors::Cyan);
 		//BWAPI::Broodwar->drawLineMap(unit->getPosition(), retreatLocation, BWAPI::Colors::Yellow);
@@ -215,7 +219,11 @@ void CombatCommander::command()
 
 			bool fleeOnLowHP = true;
 			if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling //Zerglings should not run from ranged-units as they will most likely die anyways
-				&& avoidRange > 32)
+				&& (avoidRange > 32 || closestEnemy.type == BWAPI::UnitTypes::Zerg_Zergling)) //Against Zerglings this has also shown to be bad
+			{
+				fleeOnLowHP = false;
+			}
+			if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
 			{
 				fleeOnLowHP = false;
 			}
@@ -234,12 +242,27 @@ void CombatCommander::command()
 				std::vector<UnitInfo> ourCombatUnits;
 				std::vector<UnitInfo> enemyCombatUnits;
 
-				InformationManager::Instance().getNearbyForce(ourCombatUnits, closestEnemy.lastPosition, BWAPI::Broodwar->self(), int(considerationRange), int(avoidRange));
+				InformationManager::Instance().getNearbyForce(ourCombatUnits, closestEnemy.lastPosition, BWAPI::Broodwar->self(), considerationRange, int(avoidRange));
 				InformationManager::Instance().getNearbyForce(enemyCombatUnits, closestEnemy.lastPosition, BWAPI::Broodwar->enemy(), int(avoidRange));
 
 				double averageHPRatio = 1;
 
-				double enemyPower = getForcePower(enemyCombatUnits, ourCombatUnits, closestEnemy.lastPosition, averageHPRatio);
+				double NumUnits = 0;
+				BWAPI::Position myUnitCenter = unit->getPosition();
+				BWAPI::Position positionSum;
+				for each (auto ui in ourCombatUnits)
+				{
+					positionSum += unit->getPosition();
+					NumUnits++;
+				}
+				if (NumUnits > 0)
+				{
+					myUnitCenter = positionSum / NumUnits;
+				}
+
+				BWAPI::Position middle = (closestEnemy.lastPosition + myUnitCenter) / 2;
+
+				double enemyPower = getForcePower(enemyCombatUnits, ourCombatUnits, middle, averageHPRatio);
 
 				ignoreFlyers = false;
 				ignoreNoAntiAir = false;
@@ -252,7 +275,7 @@ void CombatCommander::command()
 					ignoreNoAntiAir = true;
 				}
 				averageHPRatio = 1;
-				double myPower = getForcePower(ourCombatUnits, enemyCombatUnits, closestEnemy.lastPosition, averageHPRatio);
+				double myPower = getForcePower(ourCombatUnits, enemyCombatUnits, middle, averageHPRatio, true);
 				BWAPI::Broodwar->drawText(BWAPI::CoordinateType::Map, closestEnemy.lastPosition.x, closestEnemy.lastPosition.y, "%d vs. %d", int(myPower), int(enemyPower));
 				double myHPRatio = double(unit->getHitPoints() + unit->getShields()) / double(unit->getType().maxHitPoints() + unit->getType().maxShields()) / averageHPRatio;
 				if (fleeOnLowHP)
@@ -285,6 +308,10 @@ void CombatCommander::command()
 
 				if ((myPower >= enemyPower
 					|| unit->getType() == BWAPI::UnitTypes::Zerg_Guardian
+					|| unit->getType() == BWAPI::UnitTypes::Zerg_Scourge
+					|| unit->getType() == BWAPI::UnitTypes::Zerg_Broodling
+					|| (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling && unit->isAttacking() && unit->getTarget() && unit->getTarget()->getType() == BWAPI::UnitTypes::Terran_Siege_Tank_Siege_Mode)
+					|| (unit->getType() == BWAPI::UnitTypes::Zerg_Ultralisk && unit->isAttacking() && unit->getTarget() && unit->getTarget()->getType() == BWAPI::UnitTypes::Terran_Siege_Tank_Siege_Mode)
 					|| _broodForce
 					|| unit->isIrradiated()) //I'm gonna die anyways
 					&& !unit->isUnderStorm()) //when i'm under a storm, I better get out
@@ -293,14 +320,43 @@ void CombatCommander::command()
 					if (enemyToAttack.unitID != 0)
 					{
 						//BWAPI::Broodwar->drawLineMap(unit->getPosition(), enemyToAttack.lastPosition, BWAPI::Colors::Green);
-						if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
+						if (unit->getType() == BWAPI::UnitTypes::Zerg_Scourge)
 						{
-							Micro::MutaDanceTarget(unit, enemyToAttack.unit);
+							Micro::SmartPredictAttack(unit, enemyToAttack.unit);
+						}
+						else if (unit->getType() == BWAPI::UnitTypes::Zerg_Devourer)
+						{
+							if (unit->isIrradiated())
+							{
+								Micro::SmartKiteTarget(unit, enemyToAttack.unit, enemyToAttack.lastPosition);
+							}
+							else
+							{
+								Micro::SmartAttackUnit(unit, enemyToAttack.unit); //can't kite caue this cancels attack-animation
+							}
+						}
+						else if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
+						{
+							if (unit->isUnderAttack() || unit->getHitPoints() < unit->getType().maxHitPoints() && enemyPower > 0)
+							{
+								Micro::MutaDanceTarget(unit, enemyToAttack.unit);
+							}
+							else
+							{
+								Micro::SmartKiteTarget(unit, enemyToAttack.unit, enemyToAttack.lastPosition);
+							}
 						}
 						else if (unit->getType() == BWAPI::UnitTypes::Zerg_Hydralisk
 							|| unit->getType() == BWAPI::UnitTypes::Zerg_Guardian)
 						{
-							Micro::SmartKiteTarget(unit, enemyToAttack.unit, attackLocation);
+							if (unit->getType() == BWAPI::UnitTypes::Zerg_Hydralisk)
+							{
+								Micro::SmartKiteTarget(unit, enemyToAttack.unit, enemyToAttack.lastPosition);
+							}
+							else
+							{
+								Micro::SmartKiteTarget(unit, enemyToAttack.unit);
+							}
 						}
 						else if (unit->getType() == BWAPI::UnitTypes::Zerg_Lurker)
 						{
@@ -320,7 +376,8 @@ void CombatCommander::command()
 				else
 				{
 					bool dontSpread = false;
-					if (closestEnemy.type.topSpeed() > 0) //only build concaves against units that are stationary, otherwise retreat
+					if (closestEnemy.type == BWAPI::UnitTypes::Zerg_Zergling
+						|| closestEnemy.type == BWAPI::UnitTypes::Protoss_Zealot) //only build concaves against units that are stationary, otherwise retreat
 					{
 						dontSpread = true;
 					}
@@ -352,6 +409,7 @@ void CombatCommander::command()
 void CombatCommander::handleOverlords(BWAPI::Unit unitClosestToEnemy)
 {
 	int detectorUnitsInBattle = 0;
+	unsigned int oviCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord, true);
 	bool detectorUnitExploring = false;
 	bool needDetection = InformationManager::Instance().enemyHasCloakedUnits();
 	std::map<unsigned int, BWAPI::Position> bases;
@@ -361,30 +419,54 @@ void CombatCommander::handleOverlords(BWAPI::Unit unitClosestToEnemy)
 		bases[counter] = base;
 		counter++;
 	}
-	int oviCount = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord);
 
 	// for each detectorUnit
 	counter = 0;
-	for (auto & detectorUnit : BWAPI::Broodwar->self()->getUnits())
+
+	std::vector<unsigned int> overlordWithJobsIds;
+
+	//finding closest overlord to location that doesn't have a job yet
+
+	while (counter < bases.size() && overlordWithJobsIds.size() < oviCount)
 	{
-		if (detectorUnit->getType().isBuilding() || !detectorUnit->getType().isDetector())
+		double closestDistance = 10000;
+		BWAPI::Unit bestOviForLocation = nullptr;
+
+		for (auto & detectorUnit : BWAPI::Broodwar->self()->getUnits())
 		{
-			continue;
+			if (detectorUnit->getType().isBuilding() || !detectorUnit->getType().isDetector())
+			{
+				continue;
+			}
+			bool alreadyBusy = false;
+			for each (auto oviId in overlordWithJobsIds)
+			{
+				if (oviId == detectorUnit->getID())
+				{
+					alreadyBusy = true;
+					break;
+				}
+			}
+			if (alreadyBusy)
+			{
+				continue;
+			}
+			double distance = detectorUnit->getPosition().getDistance(bases[counter]);
+			if (distance < closestDistance)
+			{
+				closestDistance = distance;
+				bestOviForLocation = detectorUnit;
+			}
 		}
-		//BWAPI::Broodwar->printf("iterate through detectorunits for squad order: %d", order.getType());
-		if (needDetection
-			&& detectorUnitsInBattle < std::ceil(oviCount / 10.0) 
-			&& unitClosestToEnemy != nullptr 
-			&& unitClosestToEnemy->getPosition().isValid() 
-			&& unitClosestToEnemy->getType() != detectorUnit->getType())
+		if (bestOviForLocation != nullptr)
 		{
-			Micro::SmartOviScout(detectorUnit, unitClosestToEnemy->getPosition(), 256, false);
-			detectorUnitsInBattle++;
-		}
-		else if (counter <= MapTools::Instance().getScoutLocations().size())
-		{
-			//BWAPI::Broodwar->printf("send detector to least");
-			Micro::SmartOviScout(detectorUnit, bases[counter], 400);
+			bool avoidEverything = true;
+			if (InformationManager::Instance().getMainBaseLocation(BWAPI::Broodwar->enemy()) == nullptr)
+			{
+				avoidEverything = false;
+			}
+			Micro::SmartOviScout(bestOviForLocation, bases[counter], 400, avoidEverything);
+			overlordWithJobsIds.push_back(bestOviForLocation->getID());
 			counter++;
 		}
 	}
@@ -392,229 +474,18 @@ void CombatCommander::handleOverlords(BWAPI::Unit unitClosestToEnemy)
 
 void CombatCommander::updateIdleSquad()
 {
-	SquadOrder mainIdleOrder(SquadOrderTypes::Idle, BWAPI::Position(BWAPI::Broodwar->self()->getStartLocation()), 800, "Idle in base");
-	Squad & idleSquad = _squadData.getSquad("Idle");
-    for (auto & unit : _combatUnits)
-    {
-        // if it hasn't been assigned to a squad yet, put it in the low priority idle squad
-        if (_squadData.canAssignUnitToSquad(unit, idleSquad))
-        {
-			idleSquad.addUnit(unit);
-        }
-    }
-	idleSquad.setSquadOrder(mainIdleOrder);
 }
 
 void CombatCommander::updateAttackSquads()
 {
-	SquadOrder mainAttackOrder(SquadOrderTypes::Attack, getMainAttackLocation(), 800, "Attack Enemy Base");
-	double Overlords = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Overlord);
-
-	double hydraSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Hydralisk) * BWAPI::UnitTypes::Zerg_Hydralisk.supplyRequired();
-	double mutaSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Mutalisk) * BWAPI::UnitTypes::Zerg_Mutalisk.supplyRequired();
-	double lingSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Zergling) * BWAPI::UnitTypes::Zerg_Zergling.supplyRequired();
-	double ultraSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Ultralisk) * BWAPI::UnitTypes::Zerg_Ultralisk.supplyRequired();
-	double guardSupply = UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Guardian) * BWAPI::UnitTypes::Zerg_Guardian.supplyRequired();
-
-	if (lingSupply + hydraSupply + ultraSupply > 0)
-	{
-		//Grount-Troops
-		Squad & mainAttackSquad = _squadData.getSquad("MainAttack");
-		int ovisAddedToMain = 0;
-		for each (auto unit in mainAttackSquad.getUnits())
-		{
-			if (unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-			{
-				ovisAddedToMain++;
-			}
-		}
-
-		for (auto & unit : _combatUnits)
-		{
-			//This one is for ground-units only
-			if (unit->getType().isFlyer() && !unit->getType().isDetector())
-			{
-				continue;
-			}
-			if (ovisAddedToMain >= std::ceil(Overlords / 10) && unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-			{
-				continue;
-			}
-			// get every unit of a lower priority and put it into the attack squad
-			if (!unit->getType().isWorker() && _squadData.canAssignUnitToSquad(unit, mainAttackSquad))
-			{
-				_squadData.assignUnitToSquad(unit, mainAttackSquad);
-				if (unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-				{
-					ovisAddedToMain++;
-				}
-			}
-		}
-		mainAttackSquad.setSquadOrder(mainAttackOrder);
-	}
-
-	//Mutas
-	if (mutaSupply > 0)
-	{
-		Squad & airAttackSquad = _squadData.getSquad("AirAttack");
-		int ovisAddedToAir = 0;
-		for each (auto unit in airAttackSquad.getUnits())
-		{
-			if (unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-			{
-				ovisAddedToAir++;
-			}
-		}
-
-		for (auto & unit : _combatUnits)
-		{
-			//This one is for air-units only
-			if (!unit->getType().isFlyer())
-			{
-				continue;
-			}
-			if (ovisAddedToAir >= std::ceil(Overlords / 10) && unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-			{
-				continue;
-			}
-			// get every unit of a lower priority and put it into the attack squad
-			if (!unit->getType().isWorker() && _squadData.canAssignUnitToSquad(unit, airAttackSquad))
-			{
-				_squadData.assignUnitToSquad(unit, airAttackSquad);
-				if (unit->getType() == BWAPI::UnitTypes::Zerg_Overlord)
-				{
-					ovisAddedToAir++;
-				}
-			}
-		}
-		airAttackSquad.setSquadOrder(mainAttackOrder);
-	}
 }
 
 void CombatCommander::updateDropSquads()
 {
-    if (Config::Strategy::StrategyName != "Protoss_Drop")
-    {
-        return;
-    }
-
-    Squad & dropSquad = _squadData.getSquad("Drop");
-
-    // figure out how many units the drop squad needs
-    bool dropSquadHasTransport = false;
-    int transportSpotsRemaining = 8;
-    auto & dropUnits = dropSquad.getUnits();
-
-    for (auto & unit : dropUnits)
-    {
-        if (unit->isFlying() && unit->getType().spaceProvided() > 0)
-        {
-            dropSquadHasTransport = true;
-        }
-        else
-        {
-            transportSpotsRemaining -= unit->getType().spaceRequired();
-        }
-    }
-
-    // if there are still units to be added to the drop squad, do it
-    if (transportSpotsRemaining > 0 || !dropSquadHasTransport)
-    {
-        // take our first amount of combat units that fill up a transport and add them to the drop squad
-        for (auto & unit : _combatUnits)
-        {
-            // if this is a transport unit and we don't have one in the squad yet, add it
-            if (!dropSquadHasTransport && (unit->getType().spaceProvided() > 0 && unit->isFlying()))
-            {
-                _squadData.assignUnitToSquad(unit, dropSquad);
-                dropSquadHasTransport = true;
-                continue;
-            }
-
-            if (unit->getType().spaceRequired() > transportSpotsRemaining)
-            {
-                continue;
-            }
-
-            // get every unit of a lower priority and put it into the attack squad
-            if (!unit->getType().isWorker() && _squadData.canAssignUnitToSquad(unit, dropSquad))
-            {
-                _squadData.assignUnitToSquad(unit, dropSquad);
-                transportSpotsRemaining -= unit->getType().spaceRequired();
-            }
-        }
-    }
-    // otherwise the drop squad is full, so execute the order
-    else
-    {
-        SquadOrder dropOrder(SquadOrderTypes::Drop, getMainAttackLocation(), 800, "Attack Enemy Base");
-        dropSquad.setSquadOrder(dropOrder);
-    }
 }
 
 void CombatCommander::updateScoutDefenseSquad() 
 {
-    if (_combatUnits.empty()) 
-    { 
-        return; 
-    }
-
-    // if the current squad has units in it then we can ignore this
-    Squad & scoutDefenseSquad = _squadData.getSquad("ScoutDefense");
-  
-    // get the region that our base is located in
-    BWTA::Region * myRegion = BWTA::getRegion(BWAPI::Broodwar->self()->getStartLocation());
-    if (!myRegion && myRegion->getCenter().isValid())
-    {
-        return;
-    }
-
-    // get all of the enemy units in this region
-	BWAPI::Unitset enemyUnitsInRegion;
-    for (auto & unit : BWAPI::Broodwar->enemy()->getUnits())
-    {
-        if (BWTA::getRegion(BWAPI::TilePosition(unit->getPosition())) == myRegion)
-        {
-            enemyUnitsInRegion.insert(unit);
-        }
-    }
-
-    // if there's an enemy worker in our region then assign someone to chase him
-    bool assignScoutDefender = enemyUnitsInRegion.size() == 1 && (*enemyUnitsInRegion.begin())->getType().isWorker();
-
-    // if our current squad is empty and we should assign a worker, do it
-    if (scoutDefenseSquad.isEmpty() && assignScoutDefender)
-    {
-        // the enemy worker that is attacking us
-        BWAPI::Unit enemyWorker = *enemyUnitsInRegion.begin();
-
-        // get our worker unit that is mining that is closest to it
-        BWAPI::Unit workerDefender = findClosestWorkerToTarget(_combatUnits, enemyWorker);
-
-		if (enemyWorker && workerDefender)
-		{
-			// grab it from the worker manager and put it in the squad
-            if (_squadData.canAssignUnitToSquad(workerDefender, scoutDefenseSquad))
-            {
-			    WorkerManager::Instance().setCombatWorker(workerDefender);
-                _squadData.assignUnitToSquad(workerDefender, scoutDefenseSquad);
-            }
-		}
-    }
-    // if our squad is not empty and we shouldn't have a worker chasing then take him out of the squad
-    else if (!scoutDefenseSquad.isEmpty() && !assignScoutDefender)
-    {
-        for (auto & unit : scoutDefenseSquad.getUnits())
-        {
-            unit->stop();
-            if (unit->getType().isWorker())
-            {
-                WorkerManager::Instance().finishedWithWorker(unit);
-            }
-        }
-
-        scoutDefenseSquad.clear();
-    }
 }
 
 void CombatCommander::updateDefenseSquadUnits(Squad & defenseSquad, const size_t & flyingDefendersNeeded, const size_t & groundDefendersNeeded)
@@ -778,19 +649,25 @@ BWAPI::Position CombatCommander::getMyAttackLocation(BWAPI::Unit unit)
 	bool stayAtHome = false;
 	if (unit->getType() == BWAPI::UnitTypes::Zerg_Hydralisk)
 	{
-		int workerSupply = UnitUtil::GetAllUnitCount(BWAPI::Broodwar->self()->getRace().getWorker()) * BWAPI::Broodwar->self()->getRace().getWorker().supplyRequired();
-		int armySupply = BWAPI::Broodwar->self()->supplyUsed() - workerSupply;
 		int augmentLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Muscular_Augments);
-		int spineLevel = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Grooved_Spines);
 		if (ProductionManager::Instance().sunkenUnlocked && augmentLevel < 1)
 		{
 			stayAtHome = true;
 		}
 	}
+	//if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling)
+	//{
+	//	int speed = BWAPI::Broodwar->self()->getUpgradeLevel(BWAPI::UpgradeTypes::Metabolic_Boost);
+	//	if (BWAPI::Broodwar->enemy()->getRace() == BWAPI::Races::Zerg && speed < 1)
+	//	{
+	//		stayAtHome = true;
+	//	}
+	//}
+
 	BWAPI::Position pos = unit->getPosition();
 	double bestScore = 0;
-	BWAPI::Position bestPosition = BWAPI::Position(0, 0);
-	
+	BWAPI::Position bestPosition = BWAPI::Positions::None;
+
 	if (!stayAtHome)
 	{
 		for (auto enemy : InformationManager::Instance().getUnitData(BWAPI::Broodwar->enemy()).getUnits())
@@ -806,8 +683,26 @@ BWAPI::Position CombatCommander::getMyAttackLocation(BWAPI::Unit unit)
 			}
 			double Score = 0;
 			double Defense = 0;
+			
+			if (unit->getType() == BWAPI::UnitTypes::Zerg_Devourer
+				|| unit->getType() == BWAPI::UnitTypes::Zerg_Scourge)
+			{
+				if (!enemy.second.type.isFlyer())
+				{
+					continue;
+				}
+				if (unit->getType() == BWAPI::UnitTypes::Zerg_Scourge) //don't scourge overlords
+				{
+					if (enemy.second.type.supplyProvided() > 0)
+					{
+						continue;
+					}
+				}
+				Score += 1;
+				Score /= enemy.second.type.topSpeed();
+			}
 			//Very special treatment for mutalisk... they shall like killing reavers, guardians > shuttles > workers > other non-AA_ground-units before going for buildings
-			if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
+			else if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
 			{
 				if (enemy.second.type == BWAPI::UnitTypes::Zerg_Larva
 					|| enemy.second.type == BWAPI::UnitTypes::Zerg_Egg)
@@ -970,11 +865,11 @@ BWAPI::Position CombatCommander::getMyAttackLocation(BWAPI::Unit unit)
 					}
 				}
 			}
-			if (EnemiesAir > 2 * DefendersAir && unit->getType().airWeapon() != BWAPI::WeaponTypes::None)
+			if ((EnemiesAir > 2 * DefendersAir || bestPosition == BWAPI::Positions::None) && unit->getType().airWeapon() != BWAPI::WeaponTypes::None)
 			{
 				Score = 1;
 			}
-			if (EnemiesGround > 2 * DefendersGround && unit->getType().groundWeapon() != BWAPI::WeaponTypes::None)
+			if ((EnemiesGround > 2 * DefendersGround || bestPosition == BWAPI::Positions::None) && unit->getType().groundWeapon() != BWAPI::WeaponTypes::None)
 			{
 				Score = 1;
 			}
@@ -987,7 +882,7 @@ BWAPI::Position CombatCommander::getMyAttackLocation(BWAPI::Unit unit)
 		}
 	}
 
-	if (bestPosition != BWAPI::Position(0, 0))
+	if (bestPosition != BWAPI::Positions::None)
 	{
 		return bestPosition;
 	}
@@ -1008,7 +903,7 @@ BWAPI::Position CombatCommander::getMyAttackLocation(BWAPI::Unit unit)
 			bestPosition = baseLocation->getPosition();
 		}
 	}
-	if (bestPosition != BWAPI::Position(0, 0))
+	if (bestPosition != BWAPI::Positions::None)
 	{
 		return bestPosition;
 	}
@@ -1254,6 +1149,21 @@ UAlbertaBot::UnitInfo CombatCommander::findBestAttackTarget(BWAPI::Unit unit, BW
 		{
 			continue;
 		}
+		if (unit->getType() == BWAPI::UnitTypes::Zerg_Scourge)
+		{
+			if (enemy.second.type.supplyProvided() > 0)
+			{
+				continue;
+			}
+			if (enemy.second.type.isDetector())
+			{
+				continue;
+			}
+			if (!enemy.second.unit->isVisible())
+			{
+				continue;
+			}
+		}
 
 		double Score = std::numeric_limits<double>::max();
 		if (!enemy.second.type.isBuilding()
@@ -1263,6 +1173,10 @@ UAlbertaBot::UnitInfo CombatCommander::findBestAttackTarget(BWAPI::Unit unit, BW
 			|| enemy.second.type == BWAPI::UnitTypes::Terran_Bunker)
 		{
 			Score = distance * 1000 + enemy.second.lastHealth + enemy.second.lastShields;
+			if (unit->getType() == BWAPI::UnitTypes::Zerg_Scourge)
+			{
+				Score = distance * 1000;
+			}
 			if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk)
 			{
 				if (unit->getPosition().getDistance(enemy.second.lastPosition) < 3 * unit->getType().groundWeapon().maxRange())
@@ -1289,6 +1203,15 @@ UAlbertaBot::UnitInfo CombatCommander::findBestAttackTarget(BWAPI::Unit unit, BW
 			if (enemy.second.type == BWAPI::UnitTypes::Protoss_Interceptor)
 			{
 				Score = std::numeric_limits<double>::max() - 1; //only target interceptors when there's nothing else available
+			}
+			if (unit->getType() == BWAPI::UnitTypes::Zerg_Mutalisk
+				&& (enemy.second.type.airWeapon() != BWAPI::WeaponTypes::None 
+				|| enemy.second.unit->isRepairing() 
+				|| enemy.second.type == BWAPI::UnitTypes::Protoss_Reaver
+				|| enemy.second.type == BWAPI::UnitTypes::Protoss_High_Templar
+				|| enemy.second.type == BWAPI::UnitTypes::Terran_Siege_Tank_Siege_Mode))
+			{
+				Score /= 1000;
 			}
 		}
 		if (Score < WorstScore)
@@ -1368,7 +1291,7 @@ UAlbertaBot::UnitInfo CombatCommander::findClosestEnemy(BWAPI::Position pos, boo
 	return closestUnit;
 }
 
-double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<UnitInfo> enemyunits, BWAPI::Position pos, double& averageHPRatio)
+double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<UnitInfo> enemyunits, BWAPI::Position pos, double& averageHPRatio, bool mine)
 {
 	double totalPower = 0;
 	bool threatenedByFliers = false;
@@ -1383,9 +1306,15 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 	double enemyGroundValue = 0;
 	double enemyAntiGroundValue = 0;
 	double enemyAntiAirValue = 0;
+	bool enemyHasDetector = false;
 	double enemyTotalValue = 0;
+
 	for each (auto enemyunit in enemyunits)
 	{
+		if (enemyunit.type.isDetector())
+		{
+			enemyHasDetector = true;
+		}
 		if ((enemyunit.type.isWorker() && !enemyunit.unit->isAttacking() && !enemyunit.unit->isRepairing())
 			|| (enemyunit.type.isBuilding() && !enemyunit.type.canAttack() && enemyunit.type != BWAPI::UnitTypes::Terran_Bunker)
 			|| enemyunit.type == BWAPI::UnitTypes::Zerg_Overlord
@@ -1397,6 +1326,47 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 			continue;
 		}
 		double currentValue = (enemyunit.type.mineralPrice() + enemyunit.type.gasPrice()) / (enemyunit.type.isTwoUnitsInOneEgg() ? 2 : 1);
+		currentValue *= double(enemyunit.lastHealth + enemyunit.lastShields) / double(enemyunit.type.maxHitPoints() + enemyunit.type.maxShields());
+		if (enemyunit.unit->isStimmed())
+		{
+			currentValue *= 2;
+		}
+		//double distance = enemyunit.lastPosition.getDistance(pos);
+		//double range = 0;
+		//if (enemyunit.type.groundWeapon() != BWAPI::WeaponTypes::None)
+		//{
+		//	range = enemyunit.type.groundWeapon().maxRange();
+		//}
+		//if (enemyunit.type.airWeapon() != BWAPI::WeaponTypes::None)
+		//{
+		//	range = std::max((double)enemyunit.type.airWeapon().maxRange(), range);
+		//}
+		//if (enemyunit.type == BWAPI::UnitTypes::Terran_Bunker)
+		//{
+		//	range = BWAPI::UnitTypes::Terran_Marine.groundWeapon().maxRange() + 64;
+		//}
+		//if (enemyunit.type == BWAPI::UnitTypes::Terran_Marine
+		//	|| enemyunit.type == BWAPI::UnitTypes::Zerg_Hydralisk
+		//	|| enemyunit.type == BWAPI::UnitTypes::Protoss_Dragoon)
+		//{
+		//	range += 32;
+		//}
+		//if (enemyunit.type == BWAPI::UnitTypes::Protoss_Reaver)
+		//{
+		//	range = 8 * 32;
+		//}
+		//if (enemyunit.type == BWAPI::UnitTypes::Protoss_Carrier)
+		//{
+		//	range = 12 * 32;
+		//}
+		//if (distance <= range + enemyunit.type.topSpeed() * 24)
+		//{
+		//	currentValue *= 1;
+		//}
+		//else
+		//{
+		//	currentValue *= std::max(0.0, 1 - (distance - range + enemyunit.type.topSpeed() * 24) / (range + enemyunit.type.topSpeed() * 24 * 5));
+		//}
 		//by size-type
 		if (enemyunit.type.size() == BWAPI::UnitSizeTypes::Large)
 		{
@@ -1415,7 +1385,7 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 		{
 			enemyConcussiveValue += currentValue;
 		}
-		else if (enemyunit.type.groundWeapon() != BWAPI::WeaponTypes::None && enemyunit.type.groundWeapon().damageType() == BWAPI::DamageTypes::Explosive)
+		else if (enemyunit.type.groundWeapon() != BWAPI::WeaponTypes::None && enemyunit.type.groundWeapon().damageType() == BWAPI::DamageTypes::Explosive && !enemyunit.type.isBuilding()) //workaround for sunken-underestimate
 		{
 			enemyExplosiveValue += currentValue;
 		}
@@ -1436,9 +1406,13 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 		{
 			enemyAntiGroundValue += currentValue * 1.0 / 10.0;
 		}
-		if (enemyunit.type.airWeapon() != BWAPI::WeaponTypes::None)
+		if (enemyunit.type.airWeapon() != BWAPI::WeaponTypes::None || enemyunit.type == BWAPI::UnitTypes::Terran_Bunker)
 		{
 			enemyAntiAirValue += currentValue * 1.0 / 3.0;
+			if (enemyunit.type.isBuilding() || enemyunit.type == BWAPI::UnitTypes::Terran_Goliath)
+			{
+				enemyAntiAirValue += currentValue * 1.0 / 3.0;
+			}
 		}
 		enemyTotalValue += currentValue;
 	}
@@ -1452,13 +1426,17 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 	double noGroundAttackScoreMod = 1;
 	double flyerMod = 1;
 	double groundMod = 1;
+
 	if (enemyTotalValue > 0)
 	{
-		explosiveScoreMod = (enemyLargeValue + enemyMediumValue * 0.75 + enemySmallValue * 0.5) / enemyTotalValue;
-		concussiveScoreMod = (enemyLargeValue * 0.25 + enemyMediumValue * 0.5 + enemySmallValue) / enemyTotalValue;
-		largeScoreMod = (enemyConcussiveValue / 0.25 + enemyExplosiveValue + enemyNormalValue) / enemyTotalValue;
-		mediumScoreMod = (enemyConcussiveValue / 0.5 + enemyExplosiveValue / 0.75 + enemyNormalValue) / enemyTotalValue;
-		smallScoreMod = (enemyConcussiveValue + enemyExplosiveValue / 0.75 + enemyNormalValue) / enemyTotalValue;
+		if (mine) //only consider that for myself, as it otherwise would be doubled
+		{
+			explosiveScoreMod = (enemyLargeValue + enemyMediumValue * 0.75 + enemySmallValue * 0.5) / enemyTotalValue;
+			concussiveScoreMod = (enemyLargeValue * 0.25 + enemyMediumValue * 0.5 + enemySmallValue) / enemyTotalValue;
+			largeScoreMod = (enemyConcussiveValue / 0.25 + enemyExplosiveValue + enemyNormalValue) / enemyTotalValue;
+			mediumScoreMod = (enemyConcussiveValue / 0.5 + enemyExplosiveValue / 0.75 + enemyNormalValue) / enemyTotalValue;
+			smallScoreMod = (enemyConcussiveValue + enemyExplosiveValue / 0.5 + enemyNormalValue) / enemyTotalValue;
+		}
 		noAirAttackScoreMod = enemyGroundValue / enemyTotalValue;
 		noGroundAttackScoreMod = enemyFlyerValue / enemyTotalValue;
 		flyerMod = (enemyTotalValue - enemyAntiAirValue) / enemyTotalValue;
@@ -1467,13 +1445,14 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 
 	averageHPRatio = 1;
 	double unitsCounted = 0;
+	double averageDamage = 0;
 	for each (auto unit in units)
 	{
 		if (unit.player == BWAPI::Broodwar->self())
 		{
 			if (unit.type.isBuilding())
 			{
-				if (unit.type.canAttack())
+				if (unit.type.canAttack() || UnitUtil::GetAllUnitCount(BWAPI::UnitTypes::Zerg_Sunken_Colony) == 0)
 				{
 					totalPower += 10000;
 				}
@@ -1496,7 +1475,22 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 		{
 			continue;
 		}
+		if (unit.player == BWAPI::Broodwar->enemy()) //my air-units shouldn't fear enemy ground units that can't shoot up, but my ground units should ignore air-units
+		{
+			if (unit.type.isFlyer() && enemyAntiAirValue == 0)
+			{
+				continue;
+			}
+		}
 		double value = (unit.type.mineralPrice() + unit.type.gasPrice()) / (unit.type.isTwoUnitsInOneEgg() ? 2 : 1);
+		if (unit.unit->isStimmed())
+		{
+			value *= 2;
+		}
+		if (unit.type == BWAPI::UnitTypes::Zerg_Lurker && !enemyHasDetector)
+		{
+			value *= 4;
+		}
 		double currentHPRatio = double(unit.lastHealth + unit.lastShields) / double(unit.type.maxHitPoints() + unit.type.maxShields());
 		averageHPRatio += currentHPRatio;
 		++unitsCounted;
@@ -1557,6 +1551,42 @@ double	CombatCommander::getForcePower(std::vector<UnitInfo> units, std::vector<U
 			value *= groundMod;
 		}
 		value *= double(unit.lastHealth + unit.lastShields) / double(unit.type.maxHitPoints() + unit.type.maxShields());
+		//double distance = unit.lastPosition.getDistance(pos);
+		//double range = 0;
+		//if (unit.type.groundWeapon() != BWAPI::WeaponTypes::None)
+		//{
+		//	range = unit.type.groundWeapon().maxRange();
+		//}
+		//if (unit.type.airWeapon() != BWAPI::WeaponTypes::None)
+		//{
+		//	range = std::max((double)unit.type.airWeapon().maxRange(), range);
+		//}
+		//if (unit.type == BWAPI::UnitTypes::Terran_Bunker)
+		//{
+		//	range = BWAPI::UnitTypes::Terran_Marine.groundWeapon().maxRange() + 64;
+		//}
+		//if (unit.type == BWAPI::UnitTypes::Terran_Marine
+		//	|| unit.type == BWAPI::UnitTypes::Zerg_Hydralisk
+		//	|| unit.type == BWAPI::UnitTypes::Protoss_Dragoon)
+		//{
+		//	range += 32;
+		//}
+		//if (unit.type == BWAPI::UnitTypes::Protoss_Reaver)
+		//{
+		//	range = 8 * 32;
+		//}
+		//if (unit.type == BWAPI::UnitTypes::Protoss_Carrier)
+		//{
+		//	range = 12 * 32;
+		//}
+		//if (distance <= range + unit.type.topSpeed() * 24)
+		//{
+		//	value *= 1;
+		//}
+		//else
+		//{
+		//	value *= std::max(0.0, 1 - (distance - range + unit.type.topSpeed() * 24) / (range + unit.type.topSpeed() * 24 * 5));
+		//}
 		totalPower += value;
 	}
 	if (unitsCounted > 0)
